@@ -1,0 +1,5 @@
+python-dotenv
+aiogram
+black
+isort
+ruff
