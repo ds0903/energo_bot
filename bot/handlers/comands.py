@@ -13,6 +13,7 @@ router = Router()
 
 class Form(StatesGroup):
     ip = State()
+    ip_description = State()
 
 
 """Логіка головного меню"""
@@ -70,24 +71,41 @@ async def cmd_ip(message: types.Message, state: FSMContext):
 
     await asyncio.sleep(1)
     await message.answer(text1, reply_markup=keyboard)
-    await state.set_state(Form.p)
+    
 
 
-    @router.message(lambda message: message.text == "Встановити ip", Form.ip)
+    @router.message(lambda message: message.text == "Встановити ip")
     async def set_ip(message: types.Message):
-        data = message.text
-        response = await insert_data(data)
-
-        await message.answer(f"ip адреса встановлена: {response}")
-
+        await message.answer("Введіть ip адресу яку бажаєте відслідковувати")
+        await state.set_state(Form.ip)
+ 
+ 
+    @router.message(Form.ip)
+    async def set_ip(message: types.Message):
+        ip = message.text
+        await state.update_data(ip1=ip)
+        await message.reply(
+            f"ip адреса встановленна: {ip}"
+        )
         await asyncio.sleep(1)
-        # await message.answer(text1, reply_markup=keyboard)
+        await message.reply(
+        f"Напишіть тепер опис ip адреси\nНаприклад: Будинок"
+        )
+        await state.set_state(Form.ip_description)
+        
+    @router.message(Form.ip_description)
+    async def set_ip(message: types.Message):
 
+        ip_description = message.text
+        await state.update_data(ip_description1=ip_description)
+        await message.reply(
+            f"опис встановленно: {ip_description}"
+        )
+        user_data = await state.get_data()
+        about1 = user_data["about1"]
+        data_full = (about1, about2)
+        await message.answer(f"{data_full}")
 
-
-
-
-# KeyboardButton(text="Допомога"),
 
 
 
