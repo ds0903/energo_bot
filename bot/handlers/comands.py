@@ -13,6 +13,7 @@ router = Router()
 
 class Form(StatesGroup):
     ip = State()
+    ip_description = State()
 
 
 """Логіка головного меню"""
@@ -70,25 +71,61 @@ async def cmd_ip(message: types.Message, state: FSMContext):
 
     await asyncio.sleep(1)
     await message.answer(text1, reply_markup=keyboard)
-    await state.set_state(Form.p)
 
 
-    @router.message(lambda message: message.text == "Встановити ip", Form.ip)
+    @router.message(lambda message: message.text == "Встановити ip")
     async def set_ip(message: types.Message):
-        data = message.text
-        response = await insert_data(data)
+        await message.answer("Введіть ip адресу яку бажаєте відслідковувати в форматі ipv4\nНаприклад: 38.0.101.76\n\nДізнатись свою ip адресу можна перейшовши за посиланням https://whatismyipaddress.com/ru/index ", reply_markup=types.ReplyKeyboardRemove())
+        await state.set_state(Form.ip)
 
-        await message.answer(f"ip адреса встановлена: {response}")
+    @router.message(Form.ip)
+    async def ip(message: types.Message):
+        ip = message.text
+        if len(ip) > 12:
+            await message.answer("Завеликий ip адрес. Спробуйте ще раз")
+            await state.clear()
+            await set_ip(message)
+        else:
+            await state.update_data(ip=ip)
+            await message.reply(
+                f"ip адреса встановленна: {ip}"
+            )
+            await asyncio.sleep(1)
+            await message.reply(
+            f"Напишіть тепер опис ip адреси\nНаприклад: Будинок"
+            )
+            await state.set_state(Form.ip_description)
 
+    @router.message(Form.ip_description)
+    async def set_ip_description(message: types.Message):
+        user_id = message.from_user.id
+        first_name = message.from_user.first_name
+    
+        username = message.from_user.username
+        ip_description = message.text
+        await state.update_data(ip_description1=ip_description)
+        await message.reply(
+            f"опис встановленно: {ip_description}"
+        )
+        user_data = await state.get_data()
+        ip = user_data["ip"]
+        data_full = (ip, ip_description, user_id)
+        await insert_data(user_id, ip, ip_description, first_name, username)
+        await message.answer(f"Данні записано:{data_full}")
+        await state.clear()
         await asyncio.sleep(1)
-        # await message.answer(text1, reply_markup=keyboard)
+        await cmd_ip(message, state)
+
+    @router.message(lambda message: message.text == "Видалити ip")
+    async def set_ip(message: types.Message):
+        await message.answer("Виберіть ip адресу яку бажаєте видалити", reply_markup=types.ReplyKeyboardRemove())
+        # await state.set_state(Form.ip)
 
 
-
-
-
-# KeyboardButton(text="Допомога"),
-
+    @router.message(lambda message: message.text == "Змінити ip")
+    async def set_ip(message: types.Message):
+        await message.answer("Виберіть ip адресу яку бажаєте змінити", reply_markup=types.ReplyKeyboardRemove())
+        # await state.set_state(Form.ip)
 
 
 
