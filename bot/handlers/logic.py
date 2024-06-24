@@ -1,22 +1,14 @@
 import sqlite3
 
 
-<<<<<<< HEAD
 async def insert_data(user_id, ip, ip_description, first_name, last_name, username, language_code, is_premium,):
-=======
-async def insert_data(user_id, ip, ip_description, first_name, username):
->>>>>>> 4b9c29fa1e67d5ec4f451a0e7b4a58045946b152
     conn = sqlite3.connect("energo_bot.db")
     cursor = conn.cursor()
 
     # clas, description = data
 
     cursor.execute(
-<<<<<<< HEAD
         "INSERT OR IGNORE INTO ip_main (user_id, ip, description, first_name, last_name, username, language_code, is_premium) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (user_id, ip, ip_description, first_name, last_name, username, language_code, is_premium)
-=======
-        "INSERT OR IGNORE INTO ip_main (user_id, ip, description, first_name, username) VALUES (?, ?, ?, ?, ?)", (user_id, ip, ip_description, first_name, username),
->>>>>>> 4b9c29fa1e67d5ec4f451a0e7b4a58045946b152
     )
     # data = cursor.fetchone()
 
@@ -29,7 +21,6 @@ async def insert_data(user_id, ip, ip_description, first_name, username):
     conn.close()
 
     return data
-<<<<<<< HEAD
 
 
 async def delete_data(id):
@@ -88,6 +79,3 @@ async def update_user_ip(data):
 
     cursor.close()
     conn.close()
-=======
- 
->>>>>>> 4b9c29fa1e67d5ec4f451a0e7b4a58045946b152
