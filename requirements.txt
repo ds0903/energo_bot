@@ -3,5 +3,5 @@ aiogram
 black
 isort
 ruff
-icmplib
+# icmplib
 aioping
