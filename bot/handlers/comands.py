@@ -1,4 +1,5 @@
 import asyncio
+import socket
 
 import aioping
 from aiogram import Router, types
@@ -6,12 +7,11 @@ from aiogram.filters.command import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
-from handlers.logic import (delete_active_user_ip, delete_data,
+from handlers.logic import (delete_active_user_ip, delete_data, get_is_active,
                             insert_active_user_ip, insert_data,
                             list_user_active_ip, list_user_ip,
                             list_user_ip_by_id, update_user_ip,
                             update_user_status)
-# from icmplib import async_ping
 
 router = Router()
 
@@ -34,6 +34,13 @@ async def cmd_start(message: types.Message):
     await message.answer(text)
     await asyncio.sleep(1)
     await cmd_menu(message)
+    await main_ip_check(message)
+
+
+@router.message(Command("restart"))
+async def reload(message: types.Message):
+    await message.reply("Функції бота перезавантажено")
+    await main_ip_check(message)
 
 
 @router.message(lambda message: message.text == "Меню")
@@ -52,18 +59,14 @@ async def cmd_menu(message: types.Message):
 
 @router.message(lambda message: message.text == "Допомога")
 async def process_with_puree(message: types.Message):
-    # text1 = "Бот працює по принципу того що ви вказуєте свою власну ip адресу, і бот відслідковує по ній світло. наприклад ipv4 16.211.99.114"
-    # text2 = "\nВ залежності від вашого провайдера ip адреса може бути динамічна тому бажано принайні раз в тиждень ї моніторити, в іншому випадку бот працюватиме не точно."
     text = "Повна інструкція до телеграм бота знаходиться за посиланням https://t.me/energo_bot_info"
-    text3 = """\nДля отримання допомоги напишіть розробнику @ds0903\nТакож ви можете підтримати розробника донатом це не обовязково але бот працює на сервері не безкоштовно,\nmonobank `5375.4141.2663.2131`"""
+    text3 = """\nДля отримання допомоги напишіть розробнику 👨‍💻 @ds0903\nТакож ви можете підтримати розробника донатом це не обовязково але бот працює на сервері не безкоштовно,\nmonobank `5375.4141.2663.2131`"""
     kb = [
         [KeyboardButton(text="Меню")],
     ]
     keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
     await message.answer(text)
     await asyncio.sleep(2)
-    await message.answer("👨‍💻")
-    await asyncio.sleep(0.10)
     await message.answer(text3, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -72,7 +75,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
     text1 = "Оберіть потрібну вам дію"
 
     kb = [
-        [KeyboardButton(text="Змінити ip"), KeyboardButton(text="Встановити ip")],
+        [KeyboardButton(text="Змінити ip"), KeyboardButton(text="Додати ip")],
         [
             KeyboardButton(text="Видалити ip"),
             KeyboardButton(text="Список моїх ip адрес"),
@@ -84,7 +87,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
     await asyncio.sleep(1)
     await message.answer(text1, reply_markup=keyboard)
 
-    @router.message(lambda message: message.text == "Встановити ip")
+    @router.message(lambda message: message.text == "Додати ip")
     async def set_ip(message: types.Message):
         kb = [
             [KeyboardButton(text="Назад")],
@@ -103,18 +106,22 @@ async def cmd_ip(message: types.Message, state: FSMContext):
             await cmd_ip(message, state)
         else:
             ip = message.text
-            if len(ip) > 15 or len(ip) < 7:
+            try:
+                int(ip)
+                if len(ip) > 15 or len(ip) < 7:
+                    await message.answer("Не правильний формат ip адресу. Спробуйте ще раз")
+                    await state.clear()
+                    await set_ip(message)
+                else:
+                    await state.update_data(ip=ip)
+                    await message.reply(f"ip адреса встановленна: {ip}")
+                    await asyncio.sleep(1)
+                    await message.reply(
+                        f"Напишіть тепер опис ip адреси\nНаприклад: Будинок"
+                    )
+                    await state.set_state(Form.ip_description)
+            except ValueError:
                 await message.answer("Не правильний формат ip адресу. Спробуйте ще раз")
-                await state.clear()
-                await set_ip(message)
-            else:
-                await state.update_data(ip=ip)
-                await message.reply(f"ip адреса встановленна: {ip}")
-                await asyncio.sleep(1)
-                await message.reply(
-                    f"Напишіть тепер опис ip адреси\nНаприклад: Будинок"
-                )
-                await state.set_state(Form.ip_description)
 
     @router.message(Form.ip_description)
     async def set_ip_description(message: types.Message):
@@ -379,13 +386,13 @@ async def turn_on(message: types.Message, state: FSMContext):
         [KeyboardButton(text="Назад")],
     ]
     keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-    # await message.answer("Виберіть № ip адреси яку бажаєте увімкнути", reply_markup=keyboard)
     data = message.from_user.id
     result = await list_user_ip(data)
     if result:
         await message.answer(
             "Виберіть № ip адреси яку бажаєте увімкнути", reply_markup=keyboard
         )
+        await state.set_state(Form.turn_on)
         for i in result:
             (
                 id,
@@ -401,7 +408,7 @@ async def turn_on(message: types.Message, state: FSMContext):
             result1 = f"№: {id}, ip адрес: {ip}, Опис: {description}"
             await asyncio.sleep(0.5)
             await message.answer(result1)
-        await state.set_state(Form.turn_on)
+    
     else:
         await message.answer(
             "Ви не маєте жодних ip адрес ;(\nСтворіть нову ip адресу в вкладці (Список ip адрес -> Встановити ip)"
@@ -416,44 +423,49 @@ async def turn_on(message: types.Message, state: FSMContext):
             await state.clear()
             await cmd_menu(message)
         else:
-            data = message.text
-            result = await list_user_ip_by_id(data)
-            (
-                id,
-                user_id,
-                ip,
-                description,
-                first_name,
-                last_name,
-                username,
-                language_code,
-                is_premium,
-            ) = result
+            try:
+                data = message.text
+                result = await list_user_ip_by_id(data)
+                (
+                    id,
+                    user_id,
+                    ip,
+                    description,
+                    first_name,
+                    last_name,
+                    username,
+                    language_code,
+                    is_premium,
+                ) = result
 
-            result1 = f"\n№: {id}, адрес: {ip}, Опис: {description}"
+                result1 = f"\n№: {id}, адрес: {ip}, Опис: {description}"
 
-            result_2 = await insert_active_user_ip(
-                id,
-                user_id,
-                ip,
-                description,
-                first_name,
-                last_name,
-                username,
-                language_code,
-                is_premium,
-            )
-            if result_2 == "ip адрес успішно додано":
-                await message.reply(f"ip адресу активовано: {result1}")
-                await state.clear()
-                await cmd_menu(message)
-                await main(message)
-            elif result_2 == "ip адрес вже інсує":
-                await message.reply(
-                    f"ip адреса вже була активована, виберіть іншу: {result1}"
+                result_2 = await insert_active_user_ip(
+                    id,
+                    user_id,
+                    ip,
+                    description,
+                    first_name,
+                    last_name,
+                    username,
+                    language_code,
+                    is_premium,
                 )
+                if result_2 == "ip адрес успішно додано":
+                    await message.reply(f"ip адресу активовано: {result1}")
+                    await state.clear()
+                    await cmd_menu(message)
+                    await main_ip_check(message)
+                elif result_2 == "ip адрес вже інсує":
+                    await message.reply(
+                        f"ip адреса вже була активована, виберіть іншу: {result1}"
+                    )
+                    await turn_on(message, state)
+                    await main_ip_check(message)
+            except TypeError:
+                await message.reply("Виберіть інший ip адрес")
                 await turn_on(message, state)
-                await main(message)
+                await main_ip_check(message)
 
 
 @router.message(lambda message: message.text == "Вимкнути бота")
@@ -521,7 +533,7 @@ async def turn_off(message: types.Message, state: FSMContext):
                     await message.reply(f"ip адреса успішно деактивовано: {result1}")
                     await state.clear()
                     await cmd_menu(message)
-                    await main(message)
+                    await main_ip_check(message)
                 elif result_2 == "ip адреси не існує":
                     await message.reply(
                         f"ip адреса вже була деактивована, виберіть іншу: {result1}"
@@ -534,28 +546,65 @@ async def turn_off(message: types.Message, state: FSMContext):
 
 
 #########
+processed_ids = {}
+
+
 async def check_light(message: types.Message, id, user_id, ip, description, is_active):
+    if id not in processed_ids:
+        processed_ids[id] = set()
+    if id in processed_ids[id]:
+        return
     try:
-        delay = await aioping.ping(ip)
+        await aioping.ping(ip)
         status = True
-        if is_active != status:
-            await message.answer(
-                f"Світло є!\n№: {id}, адрес: {ip}, Опис: {description}"
-            )
-            await update_user_status(status, id, user_id, ip)
+        if is_active != status and id not in processed_ids[id]:
+            await update_user_status(status, user_id, id, ip)
+            processed_ids[id].add(id)
+            await asyncio.sleep(1)
+            current_is_active = await get_is_active(
+                user_id, id
+            )  # Получаем актуальное состояние
+            if current_is_active != status:
+                await message.answer(
+                    f"🟢 Світло є!\nАдрес: {ip}\nОпис: {description}\n№: {id}"
+                )
     except TimeoutError:
         status = False
-        if is_active != status:
-            await message.answer(
-                f"Світла немає!\n№: {id}, адрес: {ip}, Опис: {description}"
-            )
+        if is_active != status and id not in processed_ids[id]:
             await update_user_status(status, user_id, id, ip)
+            processed_ids[id].add(id)
+            await asyncio.sleep(1)
+            current_is_active = await get_is_active(user_id, id)
+            if current_is_active != status:
+                await message.answer(
+                    f"🔴 Світла немає!\nАдрес: {ip}\nОпис: {description}\n№: {id}"
+                )
+    except socket.gaierror:
+
+        if id not in processed_ids[id]:
+            processed_ids[id].add(id)
+            await asyncio.sleep(1)
+            await message.answer(
+                f"Не правильний формат ip адреси! №: {id} адрес: {ip}\nВпевніться чи він відповідає стандарту ipv4\nНаприклад 81.20.204.106 "
+            )
+            await delete_active_user_ip(id)
+        else:
+            print("Error")
+    except Exception:
+        if id not in processed_ids[id]:
+            processed_ids[id].add(id)
+            await message.answer(
+                "Похибка, спробуйте інший ip адрес, або зверніться за допомогою до адміністратора в вкладці Допомога"
+            )
+            await delete_active_user_ip(id)
+        else:
+            print("Error")
 
 
 ##########
 
 
-async def main(message: types.Message):
+async def main_ip_check(message: types.Message):
     user_id = message.from_user.id
     while True:
         data_active = await list_user_active_ip(user_id)
@@ -575,7 +624,10 @@ async def main(message: types.Message):
                         is_active,
                     ) = i
                     await check_light(message, id, user_id, ip, description, is_active)
-                    await asyncio.sleep(5)
+                processed_ids[id].clear()
+
+                await asyncio.sleep(30)
+                # await asyncio.sleep(5 * 60)
             except TypeError:
                 break
         else:
@@ -583,3 +635,41 @@ async def main(message: types.Message):
 
 
 # https://whatismyipaddress.com/ru/index
+
+# Напевно перенесу в окремий файл у адміна буде повний контроль над ботом
+
+@router.message(lambda message: message.text == "cmd_admin")
+async def cmd_admin(message: types.Message, state: FSMContext):
+    data = message.from_user.username
+    if data == "ds0903":
+        kb = [
+            [KeyboardButton(text="Всі значення в базі")],
+            [KeyboardButton(text="Видалити значення")],
+            [KeyboardButton(text="Видалити користувача")],
+            [KeyboardButton(text="Змінити значення")],
+        ]
+        keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+        text = "\nТут ти можеш керувати базою данних"
+        await message.answer(
+            "Ти потрапив в секретне меню" + text, reply_markup=keyboard
+        )
+    else:
+        await message.answer("Доступ заборонено🚷!")
+
+    @router.message(lambda message: message.text == "Всі значення в базі")
+    async def cmd_all_data(message: types.Message, state: FSMContext):
+        await message.answer("Тут буде всі значення в базі")
+
+    # @router.message(Form.turn_off)
+
+    @router.message(lambda message: message.text == "Видалити користувача")
+    async def cmd_ban_user(message: types.Message, state: FSMContext):
+        await message.answer("Тут буде всі значення в базі")
+
+    @router.message(lambda message: message.text == "Видалити значення")
+    async def cmd_delete_data(message: types.Message, state: FSMContext):
+        await message.answer("Тут буде всі значення в базі")
+
+    @router.message(lambda message: message.text == "Змінити значення")
+    async def cmd_change_data(message: types.Message, state: FSMContext):
+        await message.answer("Тут буде всі значення в базі")

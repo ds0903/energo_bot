@@ -1,6 +1,9 @@
 import sqlite3
 
+datab2 = sqlite3.connect("energo_bot.db")
 
+
+# datab2 = sqlite3.connect("/home/ubuntu/energo_bot.db")
 async def insert_data(
     user_id,
     ip,
@@ -11,7 +14,7 @@ async def insert_data(
     language_code,
     is_premium,
 ):
-    conn = sqlite3.connect("energo_bot.db")
+    conn = datab2
     cursor = conn.cursor()
 
     cursor.execute(
@@ -175,7 +178,9 @@ async def list_user_active_ip(user_id):
         return None, None, None, None, None, None, None, None, None
 
 
-async def update_user_status(is_active, id, user_id, ip):
+async def update_user_status(is_active, user_id, id, ip):
+    # conn = sqlite3.connect("energo_bot.db")
+    # conn = datab1
     conn = sqlite3.connect("energo_bot.db")
     cursor = conn.cursor()
 
@@ -187,3 +192,20 @@ async def update_user_status(is_active, id, user_id, ip):
 
     cursor.close()
     conn.close()
+
+
+async def get_is_active(user_id, id):
+    conn = sqlite3.connect("energo_bot.db")
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT is_active FROM active_users_ip WHERE user_id = ? AND id = ?",
+        (user_id, id),
+    )
+    result = cursor.fetchone()
+
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+    return result
