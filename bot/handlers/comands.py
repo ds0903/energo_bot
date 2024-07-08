@@ -1,6 +1,6 @@
 import asyncio
 import socket
-
+# from  handlers.admin import list_admin_info
 import aioping
 from aiogram import Router, types
 from aiogram.filters.command import Command
@@ -627,7 +627,7 @@ async def main_ip_check(message: types.Message):
                 processed_ids[id].clear()
 
                 await asyncio.sleep(30)
-                # await asyncio.sleep(5 * 60)
+                # await asyncio.sleep(10 * 60)
             except TypeError:
                 break
         else:
@@ -638,38 +638,38 @@ async def main_ip_check(message: types.Message):
 
 # Напевно перенесу в окремий файл у адміна буде повний контроль над ботом
 
-@router.message(lambda message: message.text == "cmd_admin")
-async def cmd_admin(message: types.Message, state: FSMContext):
-    data = message.from_user.username
-    if data == "ds0903":
-        kb = [
-            [KeyboardButton(text="Всі значення в базі")],
-            [KeyboardButton(text="Видалити значення")],
-            [KeyboardButton(text="Видалити користувача")],
-            [KeyboardButton(text="Змінити значення")],
-        ]
-        keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-        text = "\nТут ти можеш керувати базою данних"
-        await message.answer(
-            "Ти потрапив в секретне меню" + text, reply_markup=keyboard
-        )
-    else:
-        await message.answer("Доступ заборонено🚷!")
+# @router.message(lambda message: message.text == "cmd_admin")
+# async def cmd_admin(message: types.Message, state: FSMContext):
+#     data = message.from_user.username
+#     if data == "ds0903":
+#         kb = [
+#             [KeyboardButton(text="Всі значення в базі")],
+#             [KeyboardButton(text="Видалити значення")],
+#             [KeyboardButton(text="Видалити користувача")],
+#             [KeyboardButton(text="Змінити значення")],
+#         ]
+#         keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+#         text = "\nТут ти можеш керувати базою данних"
+#         await message.answer(
+#             "Ти потрапив в секретне меню" + text, reply_markup=keyboard
+#         )
+#     else:
+#         await message.answer("Доступ заборонено🚷!")
 
-    @router.message(lambda message: message.text == "Всі значення в базі")
-    async def cmd_all_data(message: types.Message, state: FSMContext):
-        await message.answer("Тут буде всі значення в базі")
+#     @router.message(lambda message: message.text == "Всі значення в базі")
+#     async def cmd_all_data(message: types.Message, state: FSMContext):
+#         await message.answer("Тут буде всі значення в базі")
 
-    # @router.message(Form.turn_off)
+#     # @router.message(Form.turn_off)
 
-    @router.message(lambda message: message.text == "Видалити користувача")
-    async def cmd_ban_user(message: types.Message, state: FSMContext):
-        await message.answer("Тут буде всі значення в базі")
+#     @router.message(lambda message: message.text == "Видалити користувача")
+#     async def cmd_ban_user(message: types.Message, state: FSMContext):
+#         await message.answer("Тут буде всі значення в базі")
 
-    @router.message(lambda message: message.text == "Видалити значення")
-    async def cmd_delete_data(message: types.Message, state: FSMContext):
-        await message.answer("Тут буде всі значення в базі")
+#     @router.message(lambda message: message.text == "Видалити значення")
+#     async def cmd_delete_data(message: types.Message, state: FSMContext):
+#         await message.answer("Тут буде всі значення в базі")
 
-    @router.message(lambda message: message.text == "Змінити значення")
-    async def cmd_change_data(message: types.Message, state: FSMContext):
-        await message.answer("Тут буде всі значення в базі")
+#     @router.message(lambda message: message.text == "Змінити значення")
+#     async def cmd_change_data(message: types.Message, state: FSMContext):
+#         await message.answer("Тут буде всі значення в базі")

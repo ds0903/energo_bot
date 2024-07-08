@@ -209,3 +209,23 @@ async def get_is_active(user_id, id):
     cursor.close()
     conn.close()
     return result
+
+async def list_admin_info(status):
+    conn = sqlite3.connect("energo_bot.db")
+    cursor = conn.cursor()
+    if status == "1": # Всі активні ip користувача
+        cursor.execute("SELECT * FROM active_users_ip")
+    elif status == "2": # Всі користувачі в базі
+        cursor.execute("SELECT * FROM ip_main")
+    elif status == "3": # Відвідувачі
+        cursor.execute("SELECT * FROM gosti")
+    else:
+        return None
+    results = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+    if results:
+        return results
+    else:
+        return None
