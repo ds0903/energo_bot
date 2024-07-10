@@ -1,6 +1,5 @@
 import asyncio
 import socket
-# from  handlers.admin import list_admin_info
 import aioping
 from aiogram import Router, types
 from aiogram.filters.command import Command
@@ -30,17 +29,24 @@ class Form(StatesGroup):
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
     text = "Привіт я створений для інформування чи є світло в твоєму домі.\nПереглянути повну інформацію про бота ти можеш у вкладці Допомога"
+    text2 = "Для перегляду версії бота введіть команду /version"
 
     await message.answer(text)
     await asyncio.sleep(1)
     await cmd_menu(message)
-    await main_ip_check(message)
+    await asyncio.sleep(1)
+    await message.answer(text2)
 
+@router.message(Command("version"))
+async def version(message: types.Message):
+    await message.reply("v0.1.1(Бета версія бота), При виявленні помилок напишіть будьласка адміністратору @ds0903")
 
 @router.message(Command("restart"))
 async def reload(message: types.Message):
     await message.reply("Функції бота перезавантажено")
     await main_ip_check(message)
+    await asyncio.sleep(1)
+    await message.answer("Для зупинення роботи бота видаліть активні ip в вкладці Вимкнути бота")
 
 
 @router.message(lambda message: message.text == "Меню")
@@ -263,8 +269,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
                 result1 = f"№: {id}, ip адрес: {ip}, Опис: {description}"
                 await asyncio.sleep(0.5)
                 await message.answer(result1)
-            else:
-                await state.set_state(Form.change_ip)
+            await state.set_state(Form.change_ip)
         except TypeError:
             await asyncio.sleep(0.5)
             await message.answer(
@@ -296,7 +301,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
                     is_premium,
                 ) = i
                 id1 = int(id1)
-            if id != id1:
+            if id1 != id:
                 await message.answer("Такого ip адресу не існує")
                 await state.clear()
                 await asyncio.sleep(1)
@@ -465,7 +470,6 @@ async def turn_on(message: types.Message, state: FSMContext):
             except TypeError:
                 await message.reply("Виберіть інший ip адрес")
                 await turn_on(message, state)
-                await main_ip_check(message)
 
 
 @router.message(lambda message: message.text == "Вимкнути бота")
@@ -533,7 +537,6 @@ async def turn_off(message: types.Message, state: FSMContext):
                     await message.reply(f"ip адреса успішно деактивовано: {result1}")
                     await state.clear()
                     await cmd_menu(message)
-                    await main_ip_check(message)
                 elif result_2 == "ip адреси не існує":
                     await message.reply(
                         f"ip адреса вже була деактивована, виберіть іншу: {result1}"
@@ -561,13 +564,12 @@ async def check_light(message: types.Message, id, user_id, ip, description, is_a
             await update_user_status(status, user_id, id, ip)
             processed_ids[id].add(id)
             await asyncio.sleep(1)
-            current_is_active = await get_is_active(
-                user_id, id
-            )  # Получаем актуальное состояние
+            current_is_active = await get_is_active(user_id, id)
             if current_is_active != status:
                 await message.answer(
                     f"🟢 Світло є!\nАдрес: {ip}\nОпис: {description}\n№: {id}"
                 )
+
     except TimeoutError:
         status = False
         if is_active != status and id not in processed_ids[id]:
@@ -576,9 +578,11 @@ async def check_light(message: types.Message, id, user_id, ip, description, is_a
             await asyncio.sleep(1)
             current_is_active = await get_is_active(user_id, id)
             if current_is_active != status:
+                await asyncio.sleep(1)
                 await message.answer(
                     f"🔴 Світла немає!\nАдрес: {ip}\nОпис: {description}\n№: {id}"
                 )
+
     except socket.gaierror:
 
         if id not in processed_ids[id]:
@@ -626,50 +630,13 @@ async def main_ip_check(message: types.Message):
                     await check_light(message, id, user_id, ip, description, is_active)
                 processed_ids[id].clear()
 
-                await asyncio.sleep(30)
-                # await asyncio.sleep(10 * 60)
+                # await asyncio.sleep(30)
+                await asyncio.sleep(10 * 60)
             except TypeError:
                 break
         else:
             break
 
-
+##########
 # https://whatismyipaddress.com/ru/index
 
-# Напевно перенесу в окремий файл у адміна буде повний контроль над ботом
-
-# @router.message(lambda message: message.text == "cmd_admin")
-# async def cmd_admin(message: types.Message, state: FSMContext):
-#     data = message.from_user.username
-#     if data == "ds0903":
-#         kb = [
-#             [KeyboardButton(text="Всі значення в базі")],
-#             [KeyboardButton(text="Видалити значення")],
-#             [KeyboardButton(text="Видалити користувача")],
-#             [KeyboardButton(text="Змінити значення")],
-#         ]
-#         keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-#         text = "\nТут ти можеш керувати базою данних"
-#         await message.answer(
-#             "Ти потрапив в секретне меню" + text, reply_markup=keyboard
-#         )
-#     else:
-#         await message.answer("Доступ заборонено🚷!")
-
-#     @router.message(lambda message: message.text == "Всі значення в базі")
-#     async def cmd_all_data(message: types.Message, state: FSMContext):
-#         await message.answer("Тут буде всі значення в базі")
-
-#     # @router.message(Form.turn_off)
-
-#     @router.message(lambda message: message.text == "Видалити користувача")
-#     async def cmd_ban_user(message: types.Message, state: FSMContext):
-#         await message.answer("Тут буде всі значення в базі")
-
-#     @router.message(lambda message: message.text == "Видалити значення")
-#     async def cmd_delete_data(message: types.Message, state: FSMContext):
-#         await message.answer("Тут буде всі значення в базі")
-
-#     @router.message(lambda message: message.text == "Змінити значення")
-#     async def cmd_change_data(message: types.Message, state: FSMContext):
-#         await message.answer("Тут буде всі значення в базі")

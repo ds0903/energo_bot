@@ -1,13 +1,16 @@
 import asyncio
-
-from aiogram import Router, types
+import os
+import tempfile
+from aiogram import types, Router
+from openpyxl import Workbook, load_workbook
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, InputFile
 from handlers.logic import list_admin_info
+# from aiogram.types import InputFile
 
 router = Router()
-
+#якась параша завтра пвирішу це питання
 
 class Form(StatesGroup):
     ip = State()
@@ -25,25 +28,35 @@ async def cmd_admin(message: types.Message, state: FSMContext):
     else:
         await message.answer("хуй тобі а не консоль адміна гніда ти йобана !")
 
-    @router.message(lambda message: message.text == "Всі активні ip користувачів")
-    async def cmd_all_data(message: types.Message, state: FSMContext):
-        await message.answer("Всі активні ip які тільки є в базі")
-        data = await list_admin_info(status="1")
-        for i in data:
-            (
-                id,
-                user_id,
-                ip,
-                description,
-                first_name,
-                last_name,
-                username,
-                language_code,
-                is_premium,
-                is_active,
-            ) = i
-            await message.answer(f"{id}, {user_id}, {ip}, {description}, {first_name}, {last_name}, {username}, {language_code}, {is_premium}, {is_active}")
+@router.message(lambda message: message.text == "Всі активні ip користувачів")
+async def cmd_all_data(message: types.Message, state: FSMContext):
+    await message.answer("Всі активні ip які тільки є в базі")
+    data = await list_admin_info(status="1")
+    try:
+        wb = load_workbook("exchange1.xlsx")
+    except FileNotFoundError:
+        wb = Workbook()
 
+    sheet = wb.active
+    for i in data:
+        (
+            id,
+            user_id,
+            ip,
+            description,
+            first_name,
+            last_name,
+            username,
+            language_code,
+            is_premium,
+            is_active,
+        ) = i
+        sheet.append([id, user_id, ip, description, first_name, last_name, username, language_code, is_premium, is_active])
+            # await message.answer(f"Номер ip:{id}\nid користувача:{user_id}\nip користувача:{ip}\nОпис:{description}\nім'я: {first_name}\nПрізвище: {last_name}\nНікнейм: {username}\nМова: {language_code}\nЧи преміум?: {is_premium}\nчи активний: {is_active}")
+    wb.save("exchange1.xlsx")
+    # with open("exchange1.xlsx", "rb") as xls_file:
+    #     file = InputFile(xls_file)
+    await message.answer_document(InputFile("exchange1.xlsx"))
     @router.message(lambda message: message.text == "Всі користувачі в базі")
     async def cmd_all_users(message: types.Message, state: FSMContext):
         await message.answer("Всі користувачі і їхні ip які тільки є в базі")
@@ -64,4 +77,5 @@ async def cmd_admin(message: types.Message, state: FSMContext):
 
     @router.message(lambda message: message.text == "Змінити значення")
     async def cmd_change_data(message: types.Message, state: FSMContext):
+        await message.answer("Вибери значення яке буде змінино")
         await message.answer("Вибери значення яке буде змінино")
