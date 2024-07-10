@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, InputFile
 from handlers.logic import list_admin_info
-# from aiogram.types import InputFile
+from aiogram.types import FSInputFile
 
 router = Router()
 #якась параша завтра пвирішу це питання
@@ -33,11 +33,13 @@ async def cmd_all_data(message: types.Message, state: FSMContext):
     await message.answer("Всі активні ip які тільки є в базі")
     data = await list_admin_info(status="1")
     try:
-        wb = load_workbook("exchange1.xlsx")
+        wb = load_workbook("all_user_active_ip.xlsx")
     except FileNotFoundError:
         wb = Workbook()
 
     sheet = wb.active
+    sheet.append(["ID", "User ID", "IP", "Description", "First Name", "Last Name", "Username", "Language Code", "Is Premium", "Is Active"])
+
     for i in data:
         (
             id,
@@ -51,12 +53,15 @@ async def cmd_all_data(message: types.Message, state: FSMContext):
             is_premium,
             is_active,
         ) = i
+        
         sheet.append([id, user_id, ip, description, first_name, last_name, username, language_code, is_premium, is_active])
-            # await message.answer(f"Номер ip:{id}\nid користувача:{user_id}\nip користувача:{ip}\nОпис:{description}\nім'я: {first_name}\nПрізвище: {last_name}\nНікнейм: {username}\nМова: {language_code}\nЧи преміум?: {is_premium}\nчи активний: {is_active}")
-    wb.save("exchange1.xlsx")
-    # with open("exchange1.xlsx", "rb") as xls_file:
-    #     file = InputFile(xls_file)
-    await message.answer_document(InputFile("exchange1.xlsx"))
+        # await message.answer(f"Номер ip:{id}\nid користувача:{user_id}\nip користувача:{ip}\nОпис:{description}\nім'я: {first_name}\nПрізвище: {last_name}\nНікнейм: {username}\nМова: {language_code}\nЧи преміум?: {is_premium}\nчи активний: {is_active}")
+    wb.save("all_user_active_ip.xlsx")
+
+    file = FSInputFile("all_user_active_ip.xlsx")
+    await message.answer_document(file)
+    os.remove("all_user_active_ip.xlsx")
+
     @router.message(lambda message: message.text == "Всі користувачі в базі")
     async def cmd_all_users(message: types.Message, state: FSMContext):
         await message.answer("Всі користувачі і їхні ip які тільки є в базі")

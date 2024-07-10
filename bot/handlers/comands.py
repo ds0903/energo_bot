@@ -39,7 +39,7 @@ async def cmd_start(message: types.Message):
 
 @router.message(Command("version"))
 async def version(message: types.Message):
-    await message.reply("v0.1.1(Бета версія бота), При виявленні помилок напишіть будьласка адміністратору @ds0903")
+    await message.reply("v0.1.2(Бета версія бота), При виявленні помилок напишіть будьласка розробнику @ds0903")
 
 @router.message(Command("restart"))
 async def reload(message: types.Message):
@@ -66,7 +66,7 @@ async def cmd_menu(message: types.Message):
 @router.message(lambda message: message.text == "Допомога")
 async def process_with_puree(message: types.Message):
     text = "Повна інструкція до телеграм бота знаходиться за посиланням https://t.me/energo_bot_info"
-    text3 = """\nДля отримання допомоги напишіть розробнику 👨‍💻 @ds0903\nТакож ви можете підтримати розробника донатом це не обовязково але бот працює на сервері не безкоштовно,\nmonobank `5375.4141.2663.2131`"""
+    text3 = """\nДля отримання допомоги напишіть розробнику 👨‍💻 @ds0903\nТакож ви можете підтримати проект донатом, це не обовязково але бот працює на сервері не безкоштовно,\n\nmonobank `5375.4141.2663.2131`"""
     kb = [
         [KeyboardButton(text="Меню")],
     ]
@@ -240,6 +240,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
                 await state.clear()
                 await cmd_ip(message, state)
 
+# Розібратися з вкладкобю змінити, код нке працює парвильно
     @router.message(lambda message: message.text == "Змінити ip")
     async def change_ip(message: types.Message):
         kb = [
