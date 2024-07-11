@@ -64,11 +64,43 @@ async def cmd_all_data(message: types.Message, state: FSMContext):
 
     @router.message(lambda message: message.text == "Всі користувачі в базі")
     async def cmd_all_users(message: types.Message, state: FSMContext):
-        await message.answer("Всі користувачі і їхні ip які тільки є в базі")
-
+        await message.answer("Всі користувачі які тільки є в базі")
     @router.message(lambda message: message.text == "Відвідувачі")
-    async def cmd_all_users(message: types.Message, state: FSMContext):
+    async def gosti(message: types.Message, state: FSMContext):
         await message.answer("Всі користувачі і їхні ip які тільки є в базі")
+        data = await list_admin_info(status="3")
+    try:
+        wb = load_workbook("all_users.xlsx")
+    except FileNotFoundError:
+        wb = Workbook()
+
+    sheet = wb.active
+    sheet.append(["user_id", "is_bot", "first_name", "last_name", "username", "language_code", "is_premium", "added_to_attachment_menu", "can_join_groups", "can_read_all_group_messages", "supports_inline_queries", "can_connect_to_business"])
+
+    for i in data:
+        (
+            user_id,
+            is_bot,
+            first_name,
+            last_name,
+            username,
+            language_code,
+            is_premium,
+            added_to_attachment_menu,
+            can_join_groups,
+            can_read_all_group_messages,
+            supports_inline_queries,
+            can_connect_to_business,
+        ) = i
+
+        sheet.append([user_id, is_bot, first_name, last_name, username, language_code, is_premium, added_to_attachment_menu, can_join_groups, can_read_all_group_messages, supports_inline_queries, can_connect_to_business])
+    wb.save("all_users.xlsx")
+
+    file = FSInputFile("all_users.xlsx")
+    await message.answer_document(file)
+    os.remove("all_users.xlsx")
+
+
 
     @router.message(lambda message: message.text == "Забанить користувача")
     async def cmd_ban_user(message: types.Message, state: FSMContext):

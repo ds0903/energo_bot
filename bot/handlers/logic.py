@@ -210,6 +210,65 @@ async def get_is_active(user_id, id):
     conn.close()
     return result
 
+
+async def add_gosti(
+    user_id,
+    is_bot,
+    first_name,
+    last_name,
+    username,
+    language_code,
+    is_premium,
+    added_to_attachment_menu,
+    can_join_groups,
+    can_read_all_group_messages,
+    supports_inline_queries,
+    can_connect_to_business,
+):
+    conn = sqlite3.connect("energo_bot.db")
+    cursor = conn.cursor()
+
+    cursor.execute(
+            "SELECT * FROM gosti WHERE user_id = ?",
+            (
+                user_id,
+            )
+        )
+
+    existing_user = cursor.fetchone()
+
+    if existing_user:
+        data = "Користувач вже існує в базі даних"
+    else:
+        cursor.execute(
+            "INSERT INTO gosti (user_id, is_bot, first_name, last_name, username, language_code, is_premium, added_to_attachment_menu, can_join_groups, can_read_all_group_messages, supports_inline_queries, can_connect_to_business) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                user_id,
+                is_bot,
+                first_name,
+                last_name,
+                username,
+                language_code,
+                is_premium,
+                added_to_attachment_menu,
+                can_join_groups,
+                can_read_all_group_messages,
+                supports_inline_queries,
+                can_connect_to_business,
+            )
+        )
+
+        if cursor.rowcount == 1:
+            data = "Користувач успішно доданий"
+        else:
+            data = "Помилка при додаванні користувача"
+
+    conn.commit()
+    conn.close()
+
+    return data
+
+
 async def list_admin_info(status):
     conn = sqlite3.connect("energo_bot.db")
     cursor = conn.cursor()
@@ -229,3 +288,5 @@ async def list_admin_info(status):
         return results
     else:
         return None
+
+

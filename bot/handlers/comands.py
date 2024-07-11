@@ -10,7 +10,7 @@ from handlers.logic import (delete_active_user_ip, delete_data, get_is_active,
                             insert_active_user_ip, insert_data,
                             list_user_active_ip, list_user_ip,
                             list_user_ip_by_id, update_user_ip,
-                            update_user_status)
+                            update_user_status, add_gosti, list_admin_info)
 
 router = Router()
 
@@ -30,16 +30,66 @@ class Form(StatesGroup):
 async def cmd_start(message: types.Message):
     text = "Привіт я створений для інформування чи є світло в твоєму домі.\nПереглянути повну інформацію про бота ти можеш у вкладці Допомога"
     text2 = "Для перегляду версії бота введіть команду /version"
-
     await message.answer(text)
     await asyncio.sleep(1)
     await cmd_menu(message)
     await asyncio.sleep(1)
     await message.answer(text2)
+    # data = await list_admin_info(status="3")
+
+        # for i in data:
+        #     (
+        #         id1,
+        #         user_id1,
+        #         is_bot1,
+        #         first_name1,
+        #         last_name1,
+        #         username1,
+        #         language_code1,
+        #         is_premium1,
+        #         added_to_attachment_menu1,
+        #         can_join_groups1,
+        #         can_read_all_group_messages1,
+        #         supports_inline_queries1,
+        #         can_connect_to_business1,
+        #     ) = i
+            # if user_id1 != message.from_user.id:
+
+    user_id = message.from_user.id
+    is_bot = message.from_user.is_bot
+    first_name = message.from_user.first_name
+    last_name = message.from_user.last_name
+    username = message.from_user.username
+    language_code = message.from_user.language_code
+    is_premium = message.from_user.is_premium
+    added_to_attachment_menu = message.from_user.added_to_attachment_menu
+    can_join_groups = message.from_user.can_join_groups
+    can_read_all_group_messages = message.from_user.can_read_all_group_messages
+    supports_inline_queries = message.from_user.supports_inline_queries
+    can_connect_to_business = message.from_user.can_connect_to_business
+
+    data = await add_gosti(
+        user_id,
+        is_bot,
+        first_name,
+        last_name,
+        username,
+        language_code,
+        is_premium,
+        added_to_attachment_menu,
+        can_join_groups,
+        can_read_all_group_messages,
+        supports_inline_queries,
+        can_connect_to_business,
+        )
+    if data == 1:
+        await message.answer("Ви успішно додали користувача до гостя")
+    elif data == 2:
+        await message.answer("хуй тобі")
 
 @router.message(Command("version"))
 async def version(message: types.Message):
-    await message.reply("v0.1.2(Бета версія бота), При виявленні помилок напишіть будьласка розробнику @ds0903")
+    await message.reply("v0.1.2(Бета версія бота), При виявленні помилок напишіть будьласка розробнику @ds0903\n\nСписок нових функцій: Редагування ip адрес, поки в розробці!")
 
 @router.message(Command("restart"))
 async def reload(message: types.Message):
@@ -113,8 +163,9 @@ async def cmd_ip(message: types.Message, state: FSMContext):
         else:
             ip = message.text
             try:
-                int(ip)
-                if len(ip) > 15 or len(ip) < 7:
+                ip = ip.strip()
+                # int(ip)
+                if len(ip) > 16 or len(ip) < 6:
                     await message.answer("Не правильний формат ip адресу. Спробуйте ще раз")
                     await state.clear()
                     await set_ip(message)
@@ -128,6 +179,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
                     await state.set_state(Form.ip_description)
             except ValueError:
                 await message.answer("Не правильний формат ip адресу. Спробуйте ще раз")
+
 
     @router.message(Form.ip_description)
     async def set_ip_description(message: types.Message):
@@ -248,102 +300,105 @@ async def cmd_ip(message: types.Message, state: FSMContext):
         ]
         keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
         await message.answer(
-            "Виберіть номер ip адресу який бажаєте змінити", reply_markup=keyboard
+            "Поки в розробці!", reply_markup=keyboard
         )
+        #         await message.answer(
+        #     "Виберіть номер ip адресу який бажаєте змінити", reply_markup=keyboard
+        # )
 
-        data = message.from_user.id
-        result = await list_user_ip(data)
+    #     data = message.from_user.id
+    #     result = await list_user_ip(data)
 
-        try:
-            for i in result:
-                (
-                    id,
-                    user_id,
-                    ip,
-                    description,
-                    first_name,
-                    last_name,
-                    username,
-                    language_code,
-                    is_premium,
-                ) = i
-                result1 = f"№: {id}, ip адрес: {ip}, Опис: {description}"
-                await asyncio.sleep(0.5)
-                await message.answer(result1)
-            await state.set_state(Form.change_ip)
-        except TypeError:
-            await asyncio.sleep(0.5)
-            await message.answer(
-                "Ви не маєте жодних ip адрес ;(\nСтворіть нову ip адресу в вкладці Встановити ip"
-            )
-            await state.clear()
-            await asyncio.sleep(1)
-            await cmd_ip(message, state)
+    #     try:
+    #         for i in result:
+    #             (
+    #                 id,
+    #                 user_id,
+    #                 ip,
+    #                 description,
+    #                 first_name,
+    #                 last_name,
+    #                 username,
+    #                 language_code,
+    #                 is_premium,
+    #             ) = i
+    #             result1 = f"№: {id}, ip адрес: {ip}, Опис: {description}"
+    #             await asyncio.sleep(0.5)
+    #             await message.answer(result1)
+    #         await state.set_state(Form.change_ip)
+    #     except TypeError:
+    #         await asyncio.sleep(0.5)
+    #         await message.answer(
+    #             "Ви не маєте жодних ip адрес ;(\nСтворіть нову ip адресу в вкладці Встановити ip"
+    #         )
+    #         await state.clear()
+    #         await asyncio.sleep(1)
+    #         await cmd_ip(message, state)
 
-    @router.message(Form.change_ip)
-    async def change_ip1(message: types.Message):
-        if message.text == "Назад":
-            await state.clear()
-            await cmd_ip(message, state)
-        else:
-            id1 = message.text
-            data = message.from_user.id
-            result = await list_user_ip(data)
-            for i in result:
-                (
-                    id,
-                    user_id,
-                    ip,
-                    description,
-                    first_name,
-                    last_name,
-                    username,
-                    language_code,
-                    is_premium,
-                ) = i
-                id1 = int(id1)
-            if id1 != id:
-                await message.answer("Такого ip адресу не існує")
-                await state.clear()
-                await asyncio.sleep(1)
-                await change_ip(message)
-            elif id == id1:
-                await message.answer("Напишіть новий ip адрес")
-                await state.update_data(id1=id1)
-                await asyncio.sleep(1)
-                await state.set_state(Form.change_ip_adress)
+    # @router.message(Form.change_ip)
+    # async def change_ip1(message: types.Message):
+    #     if message.text == "Назад":
+    #         await state.clear()
+    #         await cmd_ip(message, state)
+    #     else:
+    #         id1 = message.text
+    #         data = message.from_user.id
+    #         result = await list_user_ip(data)
+    #         for i in result:
+    #             (
+    #                 id,
+    #                 user_id,
+    #                 ip,
+    #                 description,
+    #                 first_name,
+    #                 last_name,
+    #                 username,
+    #                 language_code,
+    #                 is_premium,
+    #             ) = i
+    #             id1 = int(id1)
+    #         if id1 != id:
+    #             await message.answer("Такого ip адресу не існує")
+    #             await state.clear()
+    #             await asyncio.sleep(1)
+    #             await change_ip(message)
+    #         elif id == id1:
+    #             await message.answer("Напишіть новий ip адрес")
+    #             await state.update_data(id1=id1)
+    #             await asyncio.sleep(1)
+    #             await state.set_state(Form.change_ip_adress)
 
-    @router.message(Form.change_ip_adress)
-    async def change_ip2(message: types.Message):
-        if message.text == "Назад":
-            await state.clear()
-            await cmd_ip(message, state)
-        else:
-            ip = message.text
-            await state.update_data(ip=ip)
-            await message.reply(f"ip адреса встановленна: {ip}")
-            await asyncio.sleep(1)
-            await message.reply(f"Напишіть тепер опис ip адреси\nНаприклад: Будинок")
-            await state.set_state(Form.change_ip_description)
+    # @router.message(Form.change_ip_adress)
+    # async def change_ip2(message: types.Message):
+    #     if message.text == "Назад":
+    #         await state.clear()
+    #         await cmd_ip(message, state)
+    #     else:
+    #         ip = message.text
+    #         await state.update_data(ip=ip)
+    #         await message.reply(f"ip адреса встановленна: {ip}")
+    #         await asyncio.sleep(1)
+    #         await message.reply(f"Напишіть тепер опис ip адреси\nНаприклад: Будинок")
+    #         await state.set_state(Form.change_ip_description)
 
-    @router.message(Form.change_ip_description)
-    async def change_ip3(message: types.Message):
-        if message.text == "Назад":
-            await state.clear()
-            await cmd_ip(message, state)
-        else:
-            ip_description = message.text
-            user_data = await state.get_data()
-            ip = user_data["ip"]
-            id = user_data["id1"]
-            await message.reply(f"опис встановленно: {ip_description}")
-            data_full = (id, ip, ip_description)
-            await update_user_ip(data_full)
-            await asyncio.sleep(1)
-            await message.answer(f"Нова ip адреса: {data_full}")
-            await state.clear()
-            await asyncio.sleep(1)
-            await cmd_ip(message, state)
+    # @router.message(Form.change_ip_description)
+    # async def change_ip3(message: types.Message):
+    #     if message.text == "Назад":
+    #         await state.clear()
+    #         await cmd_ip(message, state)
+    #     else:
+    #         ip_description = message.text
+    #         user_data = await state.get_data()
+    #         ip = user_data["ip"]
+    #         id = user_data["id1"]
+    #         await message.reply(f"опис встановленно: {ip_description}")
+    #         data_full = (id, ip, ip_description)
+    #         await update_user_ip(data_full)
+    #         await asyncio.sleep(1)
+    #         await message.answer(f"Нова ip адреса: {data_full}")
+    #         await state.clear()
+    #         await asyncio.sleep(1)
+    #         await cmd_ip(message, state)
 
     @router.message(lambda message: message.text == "Список моїх ip адрес")
     async def list_my_ip(message: types.Message):
