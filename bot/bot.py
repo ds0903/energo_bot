@@ -25,24 +25,34 @@ async def delete_webhook():
 dp.include_router(comands.router)
 dp.include_router(admin.router)
 
-# @dp.message(Command("remind"))
-# async def remind(message: types.Message):
-#     # data = await list_admin_info(status="2")
-#     # for i in data:
-#     #             (
-#     #                 id,
-#     #                 user_id,
-#     #                 ip,
-#     #                 description,
-#     #                 first_name,
-#     #                 last_name,
-#     #                 username,
-#     #                 language_code,
-#     #                 is_premium,
-#     #             ) = i
-#     user_id = 5987399475
-#     await bot.send_message(chat_id=user_id, text="Вийшла нова версія бота, будьласка перезавантажте бота вводом команди /restart\nДля перегляду змін введіть команду /version")
 
+@dp.message(Command("remind"))
+async def remind(message: types.Message):
+    if message.from_user.username == "ds0903":
+        data = await list_admin_info(status="3")
+        for i in data:
+            (
+                id,
+                user_id,
+                is_bot,
+                first_name,
+                last_name,
+                username,
+                language_code,
+                is_premium,
+                added_to_attachment_menu,
+                can_join_groups,
+                can_read_all_group_messages,
+                supports_inline_queries,
+                can_connect_to_business,
+                current_time
+
+            ) = i
+
+            # user_id = 5987399475
+            await bot.send_message(chat_id=user_id, text="Вийшла нова версія бота\nБудьласка перезавантажте функції бота вводом команди /restart\n\nДля перегляду змін, введіть команду /version")
+    else:
+        await message.answer("Доступ заборонено")
 
 async def main():
     await delete_webhook()

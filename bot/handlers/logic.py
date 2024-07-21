@@ -224,6 +224,7 @@ async def add_gosti(
     can_read_all_group_messages,
     supports_inline_queries,
     can_connect_to_business,
+    сurrent_time,
 ):
     conn = sqlite3.connect("energo_bot.db")
     cursor = conn.cursor()
@@ -241,7 +242,7 @@ async def add_gosti(
         data = "Користувач вже існує в базі даних"
     else:
         cursor.execute(
-            "INSERT INTO gosti (user_id, is_bot, first_name, last_name, username, language_code, is_premium, added_to_attachment_menu, can_join_groups, can_read_all_group_messages, supports_inline_queries, can_connect_to_business) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO gosti (user_id, is_bot, first_name, last_name, username, language_code, is_premium, added_to_attachment_menu, can_join_groups, can_read_all_group_messages, supports_inline_queries, can_connect_to_business, сurrent_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 user_id,
                 is_bot,
@@ -255,6 +256,7 @@ async def add_gosti(
                 can_read_all_group_messages,
                 supports_inline_queries,
                 can_connect_to_business,
+                сurrent_time,
             )
         )
 

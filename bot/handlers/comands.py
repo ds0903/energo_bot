@@ -1,6 +1,7 @@
 import asyncio
 import socket
 import aioping
+from datetime import datetime
 from aiogram import Router, types
 from aiogram.filters.command import Command
 from aiogram.fsm.context import FSMContext
@@ -28,33 +29,14 @@ class Form(StatesGroup):
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
-    text = "Привіт я створений для інформування чи є світло в твоєму домі.\nПереглянути повну інформацію про бота ти можеш у вкладці Допомога"
+    text = "Привіт я створений для інформування стану електроенергії.\nПереглянути повну інформацію про бота ти можеш у вкладці Допомога"
     text2 = "Для перегляду версії бота введіть команду /version"
     await message.answer(text)
     await asyncio.sleep(1)
     await cmd_menu(message)
     await asyncio.sleep(1)
     await message.answer(text2)
-    # data = await list_admin_info(status="3")
-
-        # for i in data:
-        #     (
-        #         id1,
-        #         user_id1,
-        #         is_bot1,
-        #         first_name1,
-        #         last_name1,
-        #         username1,
-        #         language_code1,
-        #         is_premium1,
-        #         added_to_attachment_menu1,
-        #         can_join_groups1,
-        #         can_read_all_group_messages1,
-        #         supports_inline_queries1,
-        #         can_connect_to_business1,
-        #     ) = i
-            # if user_id1 != message.from_user.id:
-
+    current_time = datetime.now()
     user_id = message.from_user.id
     is_bot = message.from_user.is_bot
     first_name = message.from_user.first_name
@@ -81,6 +63,7 @@ async def cmd_start(message: types.Message):
         can_read_all_group_messages,
         supports_inline_queries,
         can_connect_to_business,
+        current_time,
         )
     if data == 1:
         await message.answer("Ви успішно додали користувача до гостя")
@@ -89,7 +72,7 @@ async def cmd_start(message: types.Message):
 
 @router.message(Command("version"))
 async def version(message: types.Message):
-    await message.reply("v0.1.2(Бета версія бота), При виявленні помилок напишіть будьласка розробнику @ds0903\n\nСписок нових функцій: Редагування ip адрес, поки в розробці!")
+    await message.reply("v1.0.3, При виявленні помилок напишіть будьласка розробнику @ds0903\n\nСписок нових функцій:\nРедагування ip адрес (поки в розробці)\nПерегляд своїх ip адрес")
 
 @router.message(Command("restart"))
 async def reload(message: types.Message):
@@ -144,19 +127,19 @@ async def cmd_ip(message: types.Message, state: FSMContext):
     await message.answer(text1, reply_markup=keyboard)
 
     @router.message(lambda message: message.text == "Додати ip")
-    async def set_ip(message: types.Message):
+    async def set_ip(message: types.Message, state: FSMContext):
         kb = [
             [KeyboardButton(text="Назад")],
         ]
         keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
         await message.answer(
-            "Введіть ip адресу яку бажаєте відслідковувати в форматі ipv4\nНаприклад: 38.0.101.76\n\nДізнатись свою ip адресу можна перейшовши за посиланням https://whatismyipaddress.com/ru/index ",
+            "Введіть ip адресу яку бажаєте відслідковувати в форматі ipv4\nНаприклад: 38.0.101.76\n\nДізнатись свою ip адресу можна перейшовши за посиланням https://2ip.ua/ru/",
             reply_markup=keyboard,
         )
         await state.set_state(Form.ip)
 
     @router.message(Form.ip)
-    async def ip(message: types.Message):
+    async def ip(message: types.Message, state: FSMContext):
         if message.text == "Назад":
             await state.clear()
             await cmd_ip(message, state)
@@ -176,13 +159,15 @@ async def cmd_ip(message: types.Message, state: FSMContext):
                     await message.reply(
                         f"Напишіть тепер опис ip адреси\nНаприклад: Будинок"
                     )
+                    
                     await state.set_state(Form.ip_description)
             except ValueError:
                 await message.answer("Не правильний формат ip адресу. Спробуйте ще раз")
+                
 
 
     @router.message(Form.ip_description)
-    async def set_ip_description(message: types.Message):
+    async def set_ip_description(message: types.Message, state: FSMContext):
         if message.text == "Назад":
             await state.clear()
             await cmd_ip(message, state)
@@ -195,7 +180,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
             is_premium = message.from_user.is_premium
             ip_description = message.text
             await state.update_data(ip_description1=ip_description)
-            await message.reply(f"опис встановленно: {ip_description}")
+            await message.reply(f"Опис встановленно: {ip_description}")
             user_data = await state.get_data()
             ip = user_data["ip"]
             data_full = (ip, ip_description)
@@ -216,7 +201,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
             await cmd_ip(message, state)
 
     @router.message(lambda message: message.text == "Видалити ip")
-    async def delete_ip(message: types.Message):
+    async def delete_ip(message: types.Message, state: FSMContext):
         kb = [
             [KeyboardButton(text="Назад")],
         ]
@@ -259,7 +244,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
                 await cmd_ip(message, state)
 
     @router.message(Form.delete_ip)
-    async def delete_ip1(message: types.Message):
+    async def delete_ip1(message: types.Message, state: FSMContext):
         if message.text == "Назад":
             await state.clear()
             await cmd_ip(message, state)
@@ -302,6 +287,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
         await message.answer(
             "Поки в розробці!", reply_markup=keyboard
         )
+        await cmd_ip(message, state)
         #         await message.answer(
         #     "Виберіть номер ip адресу який бажаєте змінити", reply_markup=keyboard
         # )
@@ -336,7 +322,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
     #         await cmd_ip(message, state)
 
     # @router.message(Form.change_ip)
-    # async def change_ip1(message: types.Message):
+    # async def change_ip1(message: types.Message, state: FSMContext):
     #     if message.text == "Назад":
     #         await state.clear()
     #         await cmd_ip(message, state)
@@ -369,7 +355,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
     #             await state.set_state(Form.change_ip_adress)
 
     # @router.message(Form.change_ip_adress)
-    # async def change_ip2(message: types.Message):
+    # async def change_ip2(message: types.Message, state: FSMContext):
     #     if message.text == "Назад":
     #         await state.clear()
     #         await cmd_ip(message, state)
@@ -382,7 +368,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
     #         await state.set_state(Form.change_ip_description)
 
     # @router.message(Form.change_ip_description)
-    # async def change_ip3(message: types.Message):
+    # async def change_ip3(message: types.Message, state: FSMContext):
     #     if message.text == "Назад":
     #         await state.clear()
     #         await cmd_ip(message, state)
@@ -401,7 +387,7 @@ async def cmd_ip(message: types.Message, state: FSMContext):
     #         await cmd_ip(message, state)
 
     @router.message(lambda message: message.text == "Список моїх ip адрес")
-    async def list_my_ip(message: types.Message):
+    async def list_my_ip(message: types.Message, state: FSMContext):
         kb = [
             [KeyboardButton(text="Назад")],
         ]
@@ -449,7 +435,7 @@ async def turn_on(message: types.Message, state: FSMContext):
     keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
     data = message.from_user.id
     result = await list_user_ip(data)
-    if result:
+    try:
         await message.answer(
             "Виберіть № ip адреси яку бажаєте увімкнути", reply_markup=keyboard
         )
@@ -469,10 +455,11 @@ async def turn_on(message: types.Message, state: FSMContext):
             result1 = f"№: {id}, ip адрес: {ip}, Опис: {description}"
             await asyncio.sleep(0.5)
             await message.answer(result1)
-    
-    else:
+
+    except TypeError:
+        asyncio.sleep(0.5)
         await message.answer(
-            "Ви не маєте жодних ip адрес ;(\nСтворіть нову ip адресу в вкладці (Список ip адрес -> Встановити ip)"
+            "Ви не маєте жодних ip адрес ;(\nСтворіть нову ip адресу в вкладці (Список моїх ip адрес -> Додати ip)"
         )
         await state.clear()
         await asyncio.sleep(1)
@@ -560,7 +547,7 @@ async def turn_off(message: types.Message, state: FSMContext):
     except TypeError:
         await asyncio.sleep(0.5)
         await message.answer(
-            "Ви не маєте жодних ip адрес ;(\nСтворіть нову ip адресу в вкладці (Мої ip адреси -> Встановити ip)"
+            "Ви не маєте жодних ip адрес ;(\nСтворіть нову ip адресу в вкладці (Список моїх ip адрес -> Додати ip)"
         )
         await state.clear()
         await asyncio.sleep(1)
@@ -663,7 +650,6 @@ async def check_light(message: types.Message, id, user_id, ip, description, is_a
 
 ##########
 
-
 async def main_ip_check(message: types.Message):
     user_id = message.from_user.id
     while True:
@@ -695,4 +681,4 @@ async def main_ip_check(message: types.Message):
 
 ##########
 # https://whatismyipaddress.com/ru/index
-
+# https://2ip.ua/ru/
