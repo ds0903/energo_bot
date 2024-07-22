@@ -1,9 +1,9 @@
-import sqlite3
+import aiosqlite
 
-datab2 = sqlite3.connect("energo_bot.db")
+datab2 = "energo_bot.db"
 
 
-# datab2 = sqlite3.connect("/home/ubuntu/energo_bot.db")
+# datab2 = "/home/ubuntu/energo_bot.db"
 async def insert_data(
     user_id,
     ip,
@@ -14,96 +14,86 @@ async def insert_data(
     language_code,
     is_premium,
 ):
-    conn = datab2
-    cursor = conn.cursor()
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
 
-    cursor.execute(
-        "INSERT OR IGNORE INTO ip_main (user_id, ip, description, first_name, last_name, username, language_code, is_premium) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            user_id,
-            ip,
-            ip_description,
-            first_name,
-            last_name,
-            username,
-            language_code,
-            is_premium,
-        ),
-    )
+            await cursor.execute(
+                "INSERT OR IGNORE INTO ip_main (user_id, ip, description, first_name, last_name, username, language_code, is_premium) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    user_id,
+                    ip,
+                    ip_description,
+                    first_name,
+                    last_name,
+                    username,
+                    language_code,
+                    is_premium,
+                ),
+            )
 
-    if cursor.rowcount == 1:
-        data = "ip адрес успішно додано"
-    else:
-        data = "ip адрес вже інсує"
+            if cursor.rowcount == 1:
+                data = "ip адрес успішно додано"
+            else:
+                data = "ip адрес вже інсує"
 
-    conn.commit()
-    conn.close()
+            await conn.commit()
 
-    return data
+            return data
 
 
 async def delete_data(id):
-    conn = sqlite3.connect("energo_bot.db")
-    cursor = conn.cursor()
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
 
-    cursor.execute("DELETE FROM ip_main WHERE id = ?", (id,))
+            await cursor.execute("DELETE FROM ip_main WHERE id = ?", (id,))
 
-    if cursor.rowcount == 1:
-        data = f"ip адреса №: {id} успішно видаленно"
-    else:
-        data = f"ip адреси №: {id} не існує"
+            if cursor.rowcount == 1:
+                data = f"ip адреса №: {id} успішно видаленно"
+            else:
+                data = f"ip адреси №: {id} не існує"
 
-    conn.commit()
-    conn.close()
+            await conn.commit()
 
-    return data
+            return data
 
 
 async def list_user_ip(user_id):
-    conn = sqlite3.connect("energo_bot.db")
-    cursor = conn.cursor()
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
 
-    cursor.execute("SELECT * FROM ip_main WHERE user_id = ?", (user_id,))
-    results = cursor.fetchall()
+            await cursor.execute("SELECT * FROM ip_main WHERE user_id = ?", (user_id,))
+            results = await cursor.fetchall()
 
-    cursor.close()
-    conn.close()
-    if results:
-        return results
-    else:
-        return None, None, None, None, None, None, None, None
+            if results:
+                return results
+            else:
+                return None, None, None, None, None, None, None, None
 
 
 async def list_user_ip_by_id(id):
-    conn = sqlite3.connect("energo_bot.db")
-    cursor = conn.cursor()
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
 
-    cursor.execute("SELECT * FROM ip_main WHERE id = ?", (id,))
-    results = cursor.fetchone()
+            await cursor.execute("SELECT * FROM ip_main WHERE id = ?", (id,))
+            results = await cursor.fetchone()
 
-    cursor.close()
-    conn.close()
-    if results:
-        return results
-    else:
-        return None, None, None, None, None, None, None, None
+            if results:
+                return results
+            else:
+                return None, None, None, None, None, None, None, None
 
 
 async def update_user_ip(data):
-    conn = sqlite3.connect("energo_bot.db")
-    cursor = conn.cursor()
-    ip_id, new_ip, new_description = data
-    cursor.execute(
-        "UPDATE ip_main SET ip = ?, description = ? WHERE id = ?",
-        (new_ip, new_description, ip_id),
-    )
-    conn.commit()
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
+            ip_id, new_ip, new_description = data
+            await cursor.execute(
+                "UPDATE ip_main SET ip = ?, description = ? WHERE id = ?",
+                (new_ip, new_description, ip_id),
+            )
+            await conn.commit()
 
-    cursor.close()
-    conn.close()
-
-
-# хранение активних ip адресов для пингования
+        # хранение активних ip адресов для пингования
 
 
 async def insert_active_user_ip(
@@ -117,98 +107,94 @@ async def insert_active_user_ip(
     language_code,
     is_premium,
 ):
-    conn = sqlite3.connect("energo_bot.db")
-    cursor = conn.cursor()
 
-    cursor.execute(
-        "INSERT OR IGNORE INTO active_users_ip (id, user_id, ip, description, first_name, last_name, username, language_code, is_premium) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            id,
-            user_id,
-            ip,
-            ip_description,
-            first_name,
-            last_name,
-            username,
-            language_code,
-            is_premium,
-        ),
-    )
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
 
-    if cursor.rowcount == 1:
-        data = "ip адрес успішно додано"
-    else:
-        data = "ip адрес вже інсує"
+            await cursor.execute(
+                "INSERT OR IGNORE INTO active_users_ip (id, user_id, ip, description, first_name, last_name, username, language_code, is_premium) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    id,
+                    user_id,
+                    ip,
+                    ip_description,
+                    first_name,
+                    last_name,
+                    username,
+                    language_code,
+                    is_premium,
+                ),
+            )
 
-    conn.commit()
-    conn.close()
+            if cursor.rowcount == 1:
+                data = "ip адрес успішно додано"
+            else:
+                data = "ip адрес вже інсує"
 
-    return data
+            await conn.commit()
+
+            return data
 
 
 async def delete_active_user_ip(id):
-    conn = sqlite3.connect("energo_bot.db")
-    cursor = conn.cursor()
 
-    cursor.execute("DELETE FROM active_users_ip WHERE id = ?", (id,))
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
 
-    if cursor.rowcount == 1:
-        data = f"ip адреса успішно видаленно"
-    else:
-        data = f"ip адреси не існує"
+            await cursor.execute("DELETE FROM active_users_ip WHERE id = ?", (id,))
 
-    conn.commit()
-    conn.close()
+            if cursor.rowcount == 1:
+                data = f"IP-адресу успішно видаленно"
+            else:
+                data = f"IP-адреси не існує"
 
-    return data
+            await conn.commit()
+
+            return data
 
 
 async def list_user_active_ip(user_id):
-    conn = sqlite3.connect("energo_bot.db")
-    cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM active_users_ip WHERE user_id = ?", (user_id,))
-    results = cursor.fetchall()
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
 
-    cursor.close()
-    conn.close()
-    if results:
-        return results
-    else:
-        return None, None, None, None, None, None, None, None, None
+            await cursor.execute(
+                "SELECT * FROM active_users_ip WHERE user_id = ?", (user_id,)
+            )
+            results = await cursor.fetchall()
+
+            if results:
+                return results
+            else:
+                return None, None, None, None, None, None, None, None, None
 
 
 async def update_user_status(is_active, user_id, id, ip):
-    # conn = sqlite3.connect("energo_bot.db")
-    # conn = datab1
-    conn = sqlite3.connect("energo_bot.db")
-    cursor = conn.cursor()
 
-    cursor.execute(
-        "UPDATE active_users_ip SET is_active = ? WHERE user_id = ? AND ip = ? AND id = ?",
-        (is_active, user_id, ip, id),
-    )
-    conn.commit()
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
 
-    cursor.close()
-    conn.close()
+            await cursor.execute(
+                "UPDATE active_users_ip SET is_active = ? WHERE user_id = ? AND ip = ? AND id = ?",
+                (is_active, user_id, ip, id),
+            )
+            await conn.commit()
 
 
 async def get_is_active(user_id, id):
-    conn = sqlite3.connect("energo_bot.db")
-    cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT is_active FROM active_users_ip WHERE user_id = ? AND id = ?",
-        (user_id, id),
-    )
-    result = cursor.fetchone()
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
 
-    conn.commit()
+            await cursor.execute(
+                "SELECT is_active FROM active_users_ip WHERE user_id = ? AND id = ?",
+                (user_id, id),
+            )
+            result = await cursor.fetchone()
 
-    cursor.close()
-    conn.close()
-    return result
+            await conn.commit()
+
+            return result
 
 
 async def add_gosti(
@@ -226,69 +212,60 @@ async def add_gosti(
     can_connect_to_business,
     сurrent_time,
 ):
-    conn = sqlite3.connect("energo_bot.db")
-    cursor = conn.cursor()
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
 
-    cursor.execute(
-            "SELECT * FROM gosti WHERE user_id = ?",
-            (
-                user_id,
-            )
-        )
+            await cursor.execute("SELECT * FROM gosti WHERE user_id = ?", (user_id,))
 
-    existing_user = cursor.fetchone()
+            existing_user = await cursor.fetchone()
 
-    if existing_user:
-        data = "Користувач вже існує в базі даних"
-    else:
-        cursor.execute(
-            "INSERT INTO gosti (user_id, is_bot, first_name, last_name, username, language_code, is_premium, added_to_attachment_menu, can_join_groups, can_read_all_group_messages, supports_inline_queries, can_connect_to_business, сurrent_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                user_id,
-                is_bot,
-                first_name,
-                last_name,
-                username,
-                language_code,
-                is_premium,
-                added_to_attachment_menu,
-                can_join_groups,
-                can_read_all_group_messages,
-                supports_inline_queries,
-                can_connect_to_business,
-                сurrent_time,
-            )
-        )
+            if existing_user:
+                data = "Користувач вже існує в базі даних"
+            else:
+                await cursor.execute(
+                    "INSERT INTO gosti (user_id, is_bot, first_name, last_name, username, language_code, is_premium, added_to_attachment_menu, can_join_groups, can_read_all_group_messages, supports_inline_queries, can_connect_to_business, сurrent_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        user_id,
+                        is_bot,
+                        first_name,
+                        last_name,
+                        username,
+                        language_code,
+                        is_premium,
+                        added_to_attachment_menu,
+                        can_join_groups,
+                        can_read_all_group_messages,
+                        supports_inline_queries,
+                        can_connect_to_business,
+                        сurrent_time,
+                    ),
+                )
 
-        if cursor.rowcount == 1:
-            data = "Користувач успішно доданий"
-        else:
-            data = "Помилка при додаванні користувача"
+                if cursor.rowcount == 1:
+                    data = "Користувач успішно доданий"
+                else:
+                    data = "Помилка при додаванні користувача"
 
-    conn.commit()
-    conn.close()
+            await conn.commit()
 
-    return data
+            return data
 
 
 async def list_admin_info(status):
-    conn = sqlite3.connect("energo_bot.db")
-    cursor = conn.cursor()
-    if status == "1": # Всі активні ip користувача
-        cursor.execute("SELECT * FROM active_users_ip")
-    elif status == "2": # Всі користувачі в базі
-        cursor.execute("SELECT * FROM ip_main")
-    elif status == "3": # Відвідувачі
-        cursor.execute("SELECT * FROM gosti")
-    else:
-        return None
-    results = cursor.fetchall()
 
-    cursor.close()
-    conn.close()
-    if results:
-        return results
-    else:
-        return None
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
+            if status == "1":  # Всі активні ip користувача
+                await cursor.execute("SELECT * FROM active_users_ip")
+            elif status == "2":  # Всі користувачі в базі
+                await cursor.execute("SELECT * FROM ip_main")
+            elif status == "3":  # Відвідувачі
+                await cursor.execute("SELECT * FROM gosti")
+            else:
+                return None
+            results = await cursor.fetchall()
 
-
+            if results:
+                return results
+            else:
+                return None

@@ -1,12 +1,11 @@
 import asyncio
 import logging
-from aiogram.filters.command import Command
-from handlers.logic import list_admin_info
+
 # import time
 from aiogram import Bot, Dispatcher, types
-from handlers import comands
-from handlers import admin
-
+from aiogram.filters.command import Command
+from handlers import admin, comands
+from handlers.logic import list_admin_info
 
 logging.basicConfig(level=logging.INFO)
 
@@ -45,14 +44,17 @@ async def remind(message: types.Message):
                 can_read_all_group_messages,
                 supports_inline_queries,
                 can_connect_to_business,
-                current_time
-
+                current_time,
             ) = i
 
             # user_id = 5987399475
-            await bot.send_message(chat_id=user_id, text="Вийшла нова версія бота\nБудьласка перезавантажте функції бота вводом команди /restart\n\nДля перегляду змін, введіть команду /version")
+            await bot.send_message(
+                chat_id=user_id,
+                text="Вийшла нова версія бота!\nДля перегляду змін введіть команду /version.\nБудь ласка, перезавантажте функції бота, ввівши команду /restart.\n",
+            )
     else:
         await message.answer("Доступ заборонено")
+
 
 async def main():
     await delete_webhook()
