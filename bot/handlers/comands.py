@@ -75,7 +75,7 @@ async def cmd_start(message: types.Message):
 @router.message(Command("version"))
 async def version(message: types.Message):
     await message.reply(
-        "v1.0.4. При виявленні помилок напишіть, будь ласка, розробнику @ds0903.\n\nСписок змін:\nВирішена проблема із зависанням бота при додаванні опису до IP-адреси.\nВиправлені синтаксичні помилки."
+        "v1.0.4. При виявленні помилок напишіть, будь ласка, розробнику @ds0903.\n\nСписок змін:\nВирішена проблема із зависанням бота при додаванні опису до IP-адреси.\nВиправленна помилка при видаленні IP-адреси\nВиправлені синтаксичні помилки.\nДатан виходу оновлення 22.07.2024"
     )
 
 
@@ -217,7 +217,7 @@ async def delete_ip(message: types.Message, state: FSMContext):
     ]
     keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
     await message.answer(
-        "Напишіть номер IP-адреси яку бажаєте видалити\nНаприклад №3 ",
+        "Напишіть номер IP-адреси яку бажаєте видалити\nНаприклад № 3 ",
         reply_markup=keyboard,
     )
     if message.text == "Назад":
@@ -260,10 +260,13 @@ async def delete_ip1(message: types.Message, state: FSMContext):
         await state.clear()
         await cmd_ip(message, state)
     else:
-        id1 = message.text
         data = message.from_user.id
         result = await list_user_ip(data)
-        id1 = int(id1)
+        try:
+           id1 = int(message.text)
+        except ValueError:
+            await message.answer("Будьласка, Введіть число!")
+            return
         for i in result:
             (
                 id,
@@ -278,10 +281,18 @@ async def delete_ip1(message: types.Message, state: FSMContext):
             ) = i
             if id == id1:
                 id2 = id
-            else:
-                continue
-            # if id1 == id:
-        
+                data1 = await delete_data(id2)
+                await message.answer(data1)
+                await asyncio.sleep(1)
+                await state.clear()
+                await cmd_ip(message, state)
+        if id != id1:
+            data1 = await delete_data(id1)
+            await message.answer(data1)
+            await state.clear()
+            await asyncio.sleep(1)
+            await delete_ip(message, state)
+  
 
 # Розібратися з вкладкобю змінити, код нке працює парвильно
 @router.message(lambda message: message.text == "Змінити IP")
