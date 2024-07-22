@@ -75,7 +75,7 @@ async def cmd_start(message: types.Message):
 @router.message(Command("version"))
 async def version(message: types.Message):
     await message.reply(
-        "v1.0.4. При виявленні помилок напишіть, будь ласка, розробнику @ds0903.\n\nСписок змін:\nВирішена проблема із зависанням бота при додаванні опису до IP-адреси.\nВиправленна помилка при видаленні IP-адреси\nВиправлені синтаксичні помилки.\nДатан виходу оновлення 22.07.2024"
+        "v1.0.4. При виявленні помилок напишіть, будь ласка, розробнику @ds0903.\n\nСписок змін:\nВирішена проблема із зависанням бота при додаванні опису до IP-адреси.\nВиправленна помилка при видаленні IP-адреси.\nВиправлені синтаксичні помилки.\n\nДата виходу оновлення 22.07.2024"
     )
 
 
@@ -106,7 +106,7 @@ async def cmd_menu(message: types.Message):
 @router.message(lambda message: message.text == "Допомога")
 async def process_with_puree(message: types.Message):
     text1 = "Повна інструкція до телеграм-бота знаходиться за посиланням https://t.me/energo_bot_info"
-    text2 = """Ви можете підтримати проект донатом; це не обов'язково, але бот працює на сервері не безкоштовно.\n\nMonobank: `5375.4141.2663.2131`\nРозробка телеграм-ботів для вашого бізнесу під ключ @ds0903"""
+    text2 = """Ви можете підтримати проект донатом; це не обов'язково, але бот працює на сервері не безкоштовно.\n\nMonobank: `5375.4141.2663.2131`\n\nРозробка телеграм-ботів для вашого бізнесу під ключ @ds0903"""
     kb = [
         [KeyboardButton(text="Меню")],
     ]
@@ -247,7 +247,7 @@ async def delete_ip(message: types.Message, state: FSMContext):
         except TypeError:
             await asyncio.sleep(0.5)
             await message.answer(
-                "Ви не маєте жодних IP-адрес ;(\nСтворіть нову IP-адресу в вкладці Встановити ip"
+                "Ви не маєте жодних IP-адрес ;(\nСтворіть нову IP-адресу в вкладці Встановити ip -> Додати IP"
             )
             await state.clear()
             await asyncio.sleep(1)
@@ -267,6 +267,7 @@ async def delete_ip1(message: types.Message, state: FSMContext):
         except ValueError:
             await message.answer("Будьласка, Введіть число!")
             return
+        found = False
         for i in result:
             (
                 id,
@@ -280,28 +281,29 @@ async def delete_ip1(message: types.Message, state: FSMContext):
                 is_premium,
             ) = i
             if id == id1:
-                id2 = id
-                data1 = await delete_data(id2)
+                found = True
+                data1 = await delete_data(id)
                 await message.answer(data1)
                 await asyncio.sleep(1)
                 await state.clear()
                 await cmd_ip(message, state)
-        if id != id1:
-            data1 = await delete_data(id1)
-            await message.answer(data1)
-            await state.clear()
+                return
+            # else:
+        if found is False:
+            await message.answer(f"IP адресу №{id1} не знайдено. Спробуйте ще раз.")
             await asyncio.sleep(1)
             await delete_ip(message, state)
   
 
 # Розібратися з вкладкобю змінити, код нке працює парвильно
 @router.message(lambda message: message.text == "Змінити IP")
-async def change_ip(message: types.Message):
+async def change_ip(message: types.Message, state: FSMContext):
     kb = [
         [KeyboardButton(text="Назад")],
     ]
     keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
     await message.answer("Поки в розробці!", reply_markup=keyboard)
+    
     await cmd_ip(message, state)
     #         await message.answer(
     #     "Виберіть номер ip адресу який бажаєте змінити", reply_markup=keyboard
@@ -414,35 +416,41 @@ async def list_my_ip(message: types.Message, state: FSMContext):
         await cmd_ip(message, state)
     else:
         await message.answer("Список ваших IP-адрес", reply_markup=keyboard)
-
-        data = message.from_user.id
-        result = await list_user_ip(data)
-        if result:
-            for i in result:
-                (
-                    id,
-                    user_id,
-                    ip,
-                    description,
-                    first_name,
-                    last_name,
-                    username,
-                    language_code,
-                    is_premium,
-                ) = i
-                result1 = f"№: {id}, IP-адрес: {ip}, Опис: {description}"
+        try:
+            data = message.from_user.id
+            result = await list_user_ip(data)
+            if result:
+                for i in result:
+                    (
+                        id,
+                        user_id,
+                        ip,
+                        description,
+                        first_name,
+                        last_name,
+                        username,
+                        language_code,
+                        is_premium,
+                    ) = i
+                    result1 = f"№: {id}, IP-адрес: {ip}, Опис: {description}"
+                    await asyncio.sleep(0.5)
+                    await message.answer(result1)
                 await asyncio.sleep(0.5)
-                await message.answer(result1)
-            await asyncio.sleep(0.5)
-            await cmd_ip(message, state)
-        else:
-            await message.answer(
-                "Ви не маєте жодних IP-адрес ;(\nСтворіть нову IP-адресу в вкладці Встановити IP"
-            )
-            await state.clear()
+                await cmd_ip(message, state)
+            else:
+                await asyncio.sleep(1)
+                await message.answer(
+                    "Ви не маєте жодних IP-адрес ;(\nСтворіть нову IP-адресу в вкладці Додати IP"
+                )
+                await state.clear()
+                await asyncio.sleep(1)
+                await cmd_ip(message, state)
+
+        except TypeError:
+            await asyncio.sleep(1)
+            await message.answer("Ви не маєте жодних IP-адрес ;(\nСтворіть нову IP-адресу в вкладці Додати IP")
             await asyncio.sleep(1)
             await cmd_ip(message, state)
-
 
 @router.message(lambda message: message.text == "Увімкнути бота")
 async def turn_on(message: types.Message, state: FSMContext):
@@ -564,7 +572,7 @@ async def turn_off(message: types.Message, state: FSMContext):
     except TypeError:
         await asyncio.sleep(0.5)
         await message.answer(
-            "Ви не маєте жодних IP-адрес ;(\nСтворіть нову IP-адресу в вкладці (Мої IP-адреси -> Додати IP)"
+            "Ви не маєте жодних ip адрес ;(\nСтворіть нову ip адресу в вкладці (Список моїх ip адрес -> Додати ip)"
         )
         await state.clear()
         await asyncio.sleep(1)
@@ -664,7 +672,6 @@ async def check_light(message: types.Message, id, user_id, ip, description, is_a
             await delete_active_user_ip(id)
         else:
             print("Error")
-
 
 ##########
 

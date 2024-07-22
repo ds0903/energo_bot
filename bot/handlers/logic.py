@@ -48,9 +48,9 @@ async def delete_data(id):
             await cursor.execute("DELETE FROM ip_main WHERE id = ?", (id,))
 
             if cursor.rowcount == 1:
-                data = f"ip адреса №: {id} успішно видаленно"
+                data = f"IP-адресу №: {id} успішно видаленно"
             else:
-                data = f"ip адреси №: {id} не існує"
+                data = f"IP-адреси №: {id} не існує"
 
             await conn.commit()
 
