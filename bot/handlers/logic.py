@@ -236,6 +236,47 @@ async def init_db():
     """Створює таблиці стандартного режиму, якщо їх ще немає."""
     async with aiosqlite.connect(datab2) as conn:
         await conn.executescript("""
+            -- таблиці початкової версії (схема збігається з уже наявними базами),
+            -- щоб бот стартував і на порожній базі нового сервера
+            CREATE TABLE IF NOT EXISTS ip_main (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                ip TEXT NOT NULL,
+                description TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                username TEXT,
+                language_code TEXT,
+                is_premium TEXT
+            );
+            CREATE TABLE IF NOT EXISTS active_users_ip (
+                id INTEGER UNIQUE,
+                user_id INTEGER,
+                ip TEXT,
+                description TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                username TEXT,
+                language_code TEXT,
+                is_premium BOOLEAN,
+                is_active BOOLEAN DEFAULT NULL
+            );
+            CREATE TABLE IF NOT EXISTS gosti (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER,
+                is_bot BOOLEAN,
+                first_name TEXT,
+                last_name TEXT,
+                username TEXT,
+                language_code TEXT,
+                is_premium BOOLEAN,
+                added_to_attachment_menu BOOLEAN,
+                can_join_groups BOOLEAN,
+                can_read_all_group_messages BOOLEAN,
+                supports_inline_queries BOOLEAN,
+                can_connect_to_business BOOLEAN,
+                сurrent_time TEXT
+            );
             CREATE TABLE IF NOT EXISTS user_modes (
                 user_id INTEGER PRIMARY KEY,
                 mode TEXT NOT NULL,
