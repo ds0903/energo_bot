@@ -246,6 +246,10 @@ async def init_db():
                 online INTEGER NOT NULL,
                 since TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS panels (
+                user_id INTEGER PRIMARY KEY,
+                message_id INTEGER NOT NULL
+            );
             """)
         # таблиця могла бути створена попередньою версією без колонки notify
         async with conn.execute("PRAGMA table_info(user_modes)") as cursor:
@@ -322,6 +326,27 @@ async def list_notify_user_ids():
                 (MODE_STANDARD,),
             )
             return [row[0] for row in await cursor.fetchall()]
+
+
+async def get_panel(user_id):
+    """id повідомлення-панелі користувача (єдиного повідомлення бота в чаті) або None."""
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                "SELECT message_id FROM panels WHERE user_id = ?", (user_id,)
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+
+async def set_panel(user_id, message_id):
+    async with aiosqlite.connect(datab2) as conn:
+        await conn.execute(
+            "INSERT INTO panels (user_id, message_id) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET message_id = excluded.message_id",
+            (user_id, message_id),
+        )
+        await conn.commit()
 
 
 async def get_tuya_state(device_id):

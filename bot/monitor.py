@@ -7,7 +7,9 @@ from zoneinfo import ZoneInfo
 
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
 from handlers.logic import get_tuya_state, list_notify_user_ids, set_tuya_state
+from handlers.menus import standard_keyboard
 from settings import env_int, tuya_device_ids, tuya_location
+from ui import send_panel
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +99,8 @@ async def process_reading(bot, device: dict, now: datetime, several: bool = Fals
 
     for user_id in await list_notify_user_ids():
         try:
-            await bot.send_message(chat_id=user_id, text=text)
+            # сповіщення стає новою панеллю: старе повідомлення зникає, кнопки лишаються під рукою
+            await send_panel(bot, user_id, text, standard_keyboard(True))
         except TelegramForbiddenError:
             logger.info("Користувач %s заблокував бота", user_id)
         except TelegramAPIError:

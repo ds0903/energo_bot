@@ -1,14 +1,41 @@
-from aiogram import types
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
-from handlers.logic import (MODE_EXTENDED, MODE_STANDARD, get_notifications,
-                            get_user_mode)
+"""Тексти та інлайн-клавіатури бота."""
+
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from settings import ip_check_minutes, tuya_location
 
-BTN_STANDARD_MODE = "🏠 Стандартний режим"
-BTN_EXTENDED_MODE = "🛠 Розширений режим"
-BTN_CHANGE_MODE = "Змінити режим"
-BTN_NOTIFY_ON = "🔔 Увімкнути сповіщення"
-BTN_NOTIFY_OFF = "🔕 Вимкнути сповіщення"
+# callback_data кнопок
+MENU_MAIN = "menu:main"
+CB_MODE_CHOOSE = "mode:choose"
+CB_MODE_STANDARD = "mode:standard"
+CB_MODE_EXTENDED = "mode:extended"
+STD_REFRESH = "std:refresh"
+STD_NOTIFY_ON = "std:notify:on"
+STD_NOTIFY_OFF = "std:notify:off"
+EXT_MENU = "ext:menu"
+EXT_IPS = "ext:ips"
+EXT_ADD = "ext:add"
+EXT_DELETE = "ext:del"
+EXT_ON = "ext:on"
+EXT_OFF = "ext:off"
+EXT_HELP = "ext:help"
+ADM_ACTIVE = "adm:active"
+ADM_USERS = "adm:users"
+ADM_GUESTS = "adm:guests"
+
+VERSION_TEXT = (
+    "v1.0.4. При виявленні помилок напишіть, будь ласка, розробнику @ds0903.\n\n"
+    "Список змін:\nВирішена проблема із зависанням бота при додаванні опису до IP-адреси.\n"
+    "Виправленна помилка при видаленні IP-адреси.\nВиправлені синтаксичні помилки.\n\n"
+    "Дата виходу оновлення 22.07.2024"
+)
+
+# parse_mode="HTML": номер картки можна скопіювати дотиком
+HELP_TEXT = (
+    "Повна інструкція до телеграм-бота знаходиться за посиланням https://t.me/energo_bot_info\n\n"
+    "Ви можете підтримати проект донатом; це не обов'язково, але бот працює на сервері не безкоштовно.\n\n"
+    "Monobank: <code>5375.4141.2663.2131</code>\n\n"
+    "Розробка телеграм-ботів для вашого бізнесу під ключ @ds0903"
+)
 
 
 def mode_choice_text() -> str:
@@ -17,53 +44,83 @@ def mode_choice_text() -> str:
         f"🏠 Стандартний — моніторинг світла за адресою {tuya_location()}\n\n"
         "🛠 Розширений — моніторинг IP-адрес (роутер, камера тощо): "
         f"бот пінгує їх кожні {ip_check_minutes()} хв.\n\n"
-        "Режим можна змінити в будь-який момент у меню."
+        "Режим можна змінити в будь-який момент."
     )
 
 
 def _keyboard(rows):
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=text) for text in row] for row in rows],
-        resize_keyboard=True,
-    )
-
-
-def mode_choice_keyboard():
-    return _keyboard([[BTN_STANDARD_MODE], [BTN_EXTENDED_MODE]])
-
-
-def standard_menu_keyboard(notifications_on: bool):
-    notify_button = BTN_NOTIFY_OFF if notifications_on else BTN_NOTIFY_ON
-    return _keyboard(
-        [
-            ["Статус світла", notify_button],
-            [BTN_CHANGE_MODE],
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=text, callback_data=data) for text, data in row]
+            for row in rows
         ]
     )
 
 
-def extended_menu_keyboard():
-    return _keyboard(
-        [
-            ["Увімкнути бота", "Вимкнути бота"],
-            ["Допомога", "Мої IP-адреси"],
-            [BTN_CHANGE_MODE],
-        ]
-    )
+def mode_choice_keyboard(can_go_back: bool = False):
+    rows = [
+        [("🏠 Стандартний режим", CB_MODE_STANDARD)],
+        [("🛠 Розширений режим", CB_MODE_EXTENDED)],
+    ]
+    if can_go_back:
+        rows.append([("◀️ Назад", MENU_MAIN)])
+    return _keyboard(rows)
 
 
-async def send_mode_choice(message: types.Message):
-    await message.answer(mode_choice_text(), reply_markup=mode_choice_keyboard())
-
-
-async def send_menu(message: types.Message, text: str = "Оберіть потрібну вам дію"):
-    """Головне меню відповідно до режиму користувача (або вибір режиму, якщо його ще немає)."""
-    user_id = message.from_user.id
-    mode = await get_user_mode(user_id)
-    if mode == MODE_STANDARD:
-        keyboard = standard_menu_keyboard(await get_notifications(user_id))
-        await message.answer(text, reply_markup=keyboard)
-    elif mode == MODE_EXTENDED:
-        await message.answer(text, reply_markup=extended_menu_keyboard())
+def standard_keyboard(notifications_on: bool):
+    if notifications_on:
+        notify = ("🔕 Вимкнути сповіщення", STD_NOTIFY_OFF)
     else:
-        await send_mode_choice(message)
+        notify = ("🔔 Увімкнути сповіщення", STD_NOTIFY_ON)
+    return _keyboard(
+        [
+            [("🔄 Оновити", STD_REFRESH)],
+            [notify],
+            [("⚙️ Змінити режим", CB_MODE_CHOOSE)],
+        ]
+    )
+
+
+def extended_keyboard():
+    return _keyboard(
+        [
+            [("▶️ Увімкнути бота", EXT_ON), ("⏹ Вимкнути бота", EXT_OFF)],
+            [("🌐 Мої IP-адреси", EXT_IPS), ("❓ Допомога", EXT_HELP)],
+            [("⚙️ Змінити режим", CB_MODE_CHOOSE)],
+        ]
+    )
+
+
+def ips_keyboard():
+    return _keyboard(
+        [
+            [("➕ Додати IP", EXT_ADD), ("🗑 Видалити IP", EXT_DELETE)],
+            [("◀️ Назад", EXT_MENU)],
+        ]
+    )
+
+
+def back_keyboard(data: str = MENU_MAIN):
+    return _keyboard([[("◀️ Назад", data)]])
+
+
+def cancel_keyboard():
+    return _keyboard([[("✖️ Скасувати", EXT_IPS)]])
+
+
+def pick_keyboard(prefix: str, items, back_data: str = EXT_MENU):
+    """По кнопці на кожен елемент (id, підпис); callback_data: "<prefix>:<id>"."""
+    rows = [[(label, f"{prefix}:{item_id}")] for item_id, label in items]
+    rows.append([("◀️ Назад", back_data)])
+    return _keyboard(rows)
+
+
+def admin_keyboard():
+    return _keyboard(
+        [
+            [("📊 Всі активні ip користувачів", ADM_ACTIVE)],
+            [("👥 Всі користувачі в базі", ADM_USERS)],
+            [("👀 Відвідувачі", ADM_GUESTS)],
+            [("◀️ Назад", MENU_MAIN)],
+        ]
+    )

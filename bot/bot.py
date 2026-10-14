@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters.command import Command
 from dotenv import load_dotenv
-from handlers import admin, comands, standard
+from handlers import admin, comands, common, standard
 from handlers.logic import init_db, list_admin_info
 from monitor import tuya_monitor
 from tuya import get_client
@@ -19,9 +19,12 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=os.environ["BOT_TOKEN"])
 dp = Dispatcher()
 
-dp.include_router(comands.router)
+# порядок важливий: команди раніше за хендлери станів, а fallback - останнім
+dp.include_router(common.router)
 dp.include_router(standard.router)
+dp.include_router(comands.router)
 dp.include_router(admin.router)
+dp.include_router(common.fallback_router)
 
 
 @dp.message(Command("remind"))

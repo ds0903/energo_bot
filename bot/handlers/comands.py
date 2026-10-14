@@ -1,426 +1,312 @@
 import asyncio
 import logging
 import socket
-from datetime import datetime
 
 import aioping
-from aiogram import Router, types
+from aiogram import Bot, F, Router, types
 from aiogram.exceptions import TelegramForbiddenError
-from aiogram.filters.command import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
-from handlers.logic import (add_gosti, delete_active_user_ip, delete_data,
+from handlers.logic import (delete_active_user_ip, delete_data,
                             insert_active_user_ip, insert_data,
                             list_user_active_ip, list_user_ip,
                             list_user_ip_by_id, update_user_status)
-from handlers.menus import send_menu
+from handlers.menus import (EXT_ADD, EXT_DELETE, EXT_HELP, EXT_IPS, EXT_MENU,
+                            EXT_OFF, EXT_ON, HELP_TEXT, back_keyboard,
+                            cancel_keyboard, extended_keyboard, ips_keyboard,
+                            pick_keyboard)
 from settings import ip_check_minutes
+from ui import delete_quietly, edit_panel, send_panel
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+ADD_IP_PROMPT = (
+    "➕ Введіть IP-адресу, яку бажаєте відслідковувати, у форматі IPv4.\n"
+    "Наприклад: 38.0.101.76\n\n"
+    "Дізнатися свою IP-адресу можна, перейшовши за посиланням: https://2ip.ua/ru/"
+)
+NO_IPS_TEXT = "Ви не маєте жодних IP-адрес ;(\nДодайте першу кнопкою «➕ Додати IP»"
 
 
 class Form(StatesGroup):
     ip = State()
     ip_description = State()
-    delete_ip = State()
-    turn_on = State()
-    turn_off = State()
 
 
-@router.message(Command("start"))
-async def cmd_start(message: types.Message):
-    text = "Привіт я створений для інформування стану електроенергії.\nПереглянути інструкцію та повну інформацію про бота ти можеш у вкладці Допомога"
-    text2 = "Для перегляду версії бота введіть команду /version"
-    await message.answer(text)
-    await asyncio.sleep(1)
-    await message.answer(text2)
-    await asyncio.sleep(1)
-    await cmd_menu(message)
-    current_time = str(datetime.now())
-    user_id = message.from_user.id
-    is_bot = message.from_user.is_bot
-    first_name = message.from_user.first_name
-    last_name = message.from_user.last_name
-    username = message.from_user.username
-    language_code = message.from_user.language_code
-    is_premium = message.from_user.is_premium
-    added_to_attachment_menu = message.from_user.added_to_attachment_menu
-    can_join_groups = message.from_user.can_join_groups
-    can_read_all_group_messages = message.from_user.can_read_all_group_messages
-    supports_inline_queries = message.from_user.supports_inline_queries
-    can_connect_to_business = message.from_user.can_connect_to_business
+def ip_label(ip, description) -> str:
+    label = f"{ip} · {description}" if description else str(ip)
+    return label[:50]
 
-    await add_gosti(
-        user_id,
-        is_bot,
-        first_name,
-        last_name,
-        username,
-        language_code,
-        is_premium,
-        added_to_attachment_menu,
-        can_join_groups,
-        can_read_all_group_messages,
-        supports_inline_queries,
-        can_connect_to_business,
-        current_time,
+
+def with_notice(notice: str, body: str) -> str:
+    return f"{notice}\n\n{body}" if notice else body
+
+
+def parse_id(data: str):
+    """Число з кінця callback_data виду "ext:on:12"; None, якщо там сміття."""
+    try:
+        return int(data.rsplit(":", 1)[1])
+    except (IndexError, ValueError):
+        return None
+
+
+async def extended_main_screen(user_id: int, notice: str = ""):
+    ips = await list_user_ip(user_id)
+    active = await list_user_active_ip(user_id)
+    body = (
+        "🛠 Розширений режим\n\n"
+        f"IP-адрес: {len(ips)}, під наглядом: {len(active)}\n"
+        "Оберіть потрібну вам дію"
+    )
+    return with_notice(notice, body), extended_keyboard()
+
+
+async def ips_screen(user_id: int, notice: str = ""):
+    ips = await list_user_ip(user_id)
+    if ips:
+        lines = [f"№{id} · {ip} · {description}" for id, _, ip, description, *_ in ips]
+        body = "🌐 Мої IP-адреси\n\n" + "\n".join(lines)
+    else:
+        body = f"🌐 Мої IP-адреси\n\n{NO_IPS_TEXT}"
+    return with_notice(notice, body), ips_keyboard()
+
+
+async def render(callback: types.CallbackQuery, text, markup, parse_mode=None):
+    """Змінює повідомлення, на кнопку якого натиснули."""
+    await edit_panel(
+        callback.bot,
+        callback.from_user.id,
+        text,
+        markup,
+        parse_mode=parse_mode,
+        message_id=callback.message.message_id if callback.message else None,
     )
 
 
-@router.message(Command("version"))
-async def version(message: types.Message):
-    await message.reply(
-        "v1.0.4. При виявленні помилок напишіть, будь ласка, розробнику @ds0903.\n\nСписок змін:\nВирішена проблема із зависанням бота при додаванні опису до IP-адреси.\nВиправленна помилка при видаленні IP-адреси.\nВиправлені синтаксичні помилки.\n\nДата виходу оновлення 22.07.2024"
-    )
+@router.callback_query(F.data == EXT_MENU)
+async def show_menu(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    text, markup = await extended_main_screen(callback.from_user.id)
+    await render(callback, text, markup)
 
 
-@router.message(Command("restart"))
-async def reload(message: types.Message):
-    await message.reply("Функції бота перезавантажено")
-    await asyncio.sleep(1)
-    await message.answer(
-        "Для зупинення роботи бота видаліть активні ip в вкладці Меню -> Вимкнути бота"
-    )
-    # цикл перевірки нескінченний, тому запускаємо його останнім
-    await main_ip_check(message)
+@router.callback_query(F.data == EXT_HELP)
+async def show_help(callback: types.CallbackQuery):
+    await callback.answer()
+    await render(callback, HELP_TEXT, back_keyboard(EXT_MENU), parse_mode="HTML")
 
 
-@router.message(lambda message: message.text == "Меню")
-async def cmd_menu(message: types.Message, state: FSMContext = None):
-    if state is not None:
-        await state.clear()
-    await asyncio.sleep(1)
-    await send_menu(message)
+@router.callback_query(F.data == EXT_IPS)
+async def show_ips(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    text, markup = await ips_screen(callback.from_user.id)
+    await render(callback, text, markup)
 
 
-@router.message(lambda message: message.text == "Допомога")
-async def process_with_puree(message: types.Message):
-    text1 = "Повна інструкція до телеграм-бота знаходиться за посиланням https://t.me/energo_bot_info"
-    text2 = """Ви можете підтримати проект донатом; це не обов'язково, але бот працює на сервері не безкоштовно.\n\nMonobank: `5375.4141.2663.2131`\n\nРозробка телеграм-ботів для вашого бізнесу під ключ @ds0903"""
-    kb = [
-        [KeyboardButton(text="Меню")],
-    ]
-    keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-    await message.answer(text1)
-    await asyncio.sleep(2)
-    await message.answer(text2, reply_markup=keyboard, parse_mode="Markdown")
+# ---- додавання IP
 
 
-@router.message(lambda message: message.text == "Мої IP-адреси")
-async def cmd_ip(message: types.Message, state: FSMContext):
-    text1 = "Оберіть потрібну вам дію"
-
-    kb = [
-        [KeyboardButton(text="Змінити IP"), KeyboardButton(text="Додати IP")],
-        [
-            KeyboardButton(text="Видалити IP"),
-            KeyboardButton(text="Список моїх IP-адрес"),
-        ],
-        [KeyboardButton(text="Меню")],
-    ]
-    keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-
-    await asyncio.sleep(1)
-    await message.answer(text1, reply_markup=keyboard)
-
-
-@router.message(lambda message: message.text == "Додати IP")
-async def set_ip(message: types.Message, state: FSMContext):
-    kb = [
-        [KeyboardButton(text="Назад")],
-    ]
-    keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-    await message.answer(
-        "Введіть IP-адресу, яку бажаєте відслідковувати, у форматі IPv4.\nНаприклад: 38.0.101.76\n\nДізнатися свою IP-адресу можна, перейшовши за посиланням: https://2ip.ua/ru/",
-        reply_markup=keyboard,
-    )
+@router.callback_query(F.data == EXT_ADD)
+async def add_ip(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
     await state.set_state(Form.ip)
+    await render(callback, ADD_IP_PROMPT, cancel_keyboard())
 
 
 @router.message(Form.ip)
-async def ip(message: types.Message, state: FSMContext):
-    if message.text == "Назад":
-        await state.clear()
-        await cmd_ip(message, state)
-    else:
-        ip = (message.text or "").strip()
-        if len(ip) > 16 or len(ip) < 6:
-            await message.answer("Не правильний формат IP-адреси. Спробуйте ще раз!")
-            await state.clear()
-            await set_ip(message, state)
-        else:
-            await state.update_data(ip=ip)
-            await message.reply(f"IP-адреса встановленна: {ip}")
-            await asyncio.sleep(1)
-            await message.reply("Напишіть тепер опис IP-адреси\nНаприклад: Будинок")
+async def set_ip(message: types.Message, state: FSMContext, bot: Bot):
+    await delete_quietly(bot, message.chat.id, message.message_id)
+    user_id = message.from_user.id
+    ip = (message.text or "").strip()
+    if len(ip) > 16 or len(ip) < 6:
+        await edit_panel(
+            bot,
+            user_id,
+            "❌ Не правильний формат IP-адреси. Спробуйте ще раз!\n\n" + ADD_IP_PROMPT,
+            cancel_keyboard(),
+        )
+        return
 
-            await state.set_state(Form.ip_description)
+    await state.update_data(ip=ip)
+    await state.set_state(Form.ip_description)
+    await edit_panel(
+        bot,
+        user_id,
+        f"IP-адреса встановлена: {ip}\n\nНапишіть тепер опис IP-адреси\nНаприклад: Будинок",
+        cancel_keyboard(),
+    )
 
 
 @router.message(Form.ip_description)
-async def set_ip_description(message: types.Message, state: FSMContext):
-    if message.text == "Назад":
-        await state.clear()
-        await cmd_ip(message, state)
-    elif not message.text:
-        await message.answer("Опис має бути текстом. Спробуйте ще раз!")
+async def set_ip_description(message: types.Message, state: FSMContext, bot: Bot):
+    await delete_quietly(bot, message.chat.id, message.message_id)
+    user = message.from_user
+    if not message.text:
+        await edit_panel(
+            bot,
+            user.id,
+            "❌ Опис має бути текстом. Спробуйте ще раз!\n\nНапишіть опис IP-адреси\nНаприклад: Будинок",
+            cancel_keyboard(),
+        )
+        return
+
+    ip = (await state.get_data())["ip"]
+    await state.clear()
+    await insert_data(
+        user.id,
+        ip,
+        message.text,
+        user.first_name,
+        user.last_name,
+        user.username,
+        user.language_code,
+        user.is_premium,
+    )
+    text, markup = await ips_screen(
+        user.id, f"✅ Дані записано: ({ip}, {message.text})"
+    )
+    await edit_panel(bot, user.id, text, markup)
+
+
+# ---- видалення IP
+
+
+@router.callback_query(F.data == EXT_DELETE)
+async def choose_ip_to_delete(callback: types.CallbackQuery):
+    await callback.answer()
+    ips = await list_user_ip(callback.from_user.id)
+    if not ips:
+        text, markup = await ips_screen(callback.from_user.id)
+        await render(callback, text, markup)
+        return
+    items = [
+        (id, "🗑 " + ip_label(ip, description)) for id, _, ip, description, *_ in ips
+    ]
+    await render(
+        callback,
+        "🗑 Оберіть IP-адресу, яку бажаєте видалити",
+        pick_keyboard(EXT_DELETE, items, EXT_IPS),
+    )
+
+
+@router.callback_query(F.data.startswith(EXT_DELETE + ":"))
+async def delete_ip(callback: types.CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    ip_id = parse_id(callback.data)
+    # видаляти можна лише власні IP-адреси
+    own = {row[0] for row in await list_user_ip(user_id)}
+    if ip_id in own:
+        notice = "✅ " + await delete_data(ip_id)
     else:
-        user_id = message.from_user.id
-        first_name = message.from_user.first_name
-        last_name = message.from_user.last_name
-        username = message.from_user.username
-        language_code = message.from_user.language_code
-        is_premium = message.from_user.is_premium
-        ip_description = message.text
-        await state.update_data(ip_description1=ip_description)
-        await message.reply(f"Опис встановленно: {ip_description}")
-        user_data = await state.get_data()
-        ip = user_data["ip"]
-        data_full = (ip, ip_description)
-        await insert_data(
-            user_id,
-            ip,
-            ip_description,
-            first_name,
-            last_name,
-            username,
-            language_code,
-            is_premium,
-        )
-        await asyncio.sleep(1)
-        await message.answer(f"Данні записано: {data_full}")
-        await state.clear()
-        await asyncio.sleep(1)
-        await cmd_ip(message, state)
+        notice = f"❌ IP адресу №{ip_id} не знайдено."
+    text, markup = await ips_screen(user_id, notice)
+    await render(callback, text, markup)
 
 
-@router.message(lambda message: message.text == "Видалити IP")
-async def delete_ip(message: types.Message, state: FSMContext):
-    result = await list_user_ip(message.from_user.id)
-    if not result:
-        await asyncio.sleep(0.5)
-        await message.answer(
-            "Ви не маєте жодних IP-адрес ;(\nСтворіть нову IP-адресу в вкладці Встановити ip -> Додати IP"
-        )
-        await state.clear()
-        await asyncio.sleep(1)
-        await cmd_ip(message, state)
+# ---- вмикання / вимикання моніторингу
+
+
+@router.callback_query(F.data == EXT_ON)
+async def choose_ip_to_enable(callback: types.CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    ips = await list_user_ip(user_id)
+    if not ips:
+        text, markup = await ips_screen(user_id)
+        await render(callback, text, markup)
         return
-
-    kb = [
-        [KeyboardButton(text="Назад")],
+    active = {row[0] for row in await list_user_active_ip(user_id)}
+    items = [
+        (id, ("✅ " if id in active else "▶️ ") + ip_label(ip, description))
+        for id, _, ip, description, *_ in ips
     ]
-    keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-    await message.answer(
-        "Напишіть номер IP-адреси яку бажаєте видалити\nНаприклад № 3 ",
-        reply_markup=keyboard,
+    await render(
+        callback,
+        "▶️ Оберіть IP-адресу, яку бажаєте увімкнути\n(✅ - вже під наглядом)",
+        pick_keyboard(EXT_ON, items, EXT_MENU),
     )
-    await asyncio.sleep(0.5)
-    for id, user_id, ip, description, *_ in result:
-        await message.answer(f"№: {id}, IP-адрес: {ip}, Опис: {description}")
-        await asyncio.sleep(0.5)
-    await state.set_state(Form.delete_ip)
 
 
-@router.message(Form.delete_ip)
-async def delete_ip1(message: types.Message, state: FSMContext):
-    if message.text == "Назад":
-        await state.clear()
-        await cmd_ip(message, state)
-        return
-
-    try:
-        id1 = int(message.text or "")
-    except ValueError:
-        await message.answer("Будь ласка, введіть число!")
-        return
-
-    result = await list_user_ip(message.from_user.id)
-    for id, *_ in result:
-        if id == id1:
-            data1 = await delete_data(id)
-            await message.answer(data1)
-            await asyncio.sleep(1)
-            await state.clear()
-            await cmd_ip(message, state)
-            return
-
-    await message.answer(f"IP адресу №{id1} не знайдено. Спробуйте ще раз.")
-    await asyncio.sleep(1)
-    await delete_ip(message, state)
-
-
-@router.message(lambda message: message.text == "Змінити IP")
-async def change_ip(message: types.Message, state: FSMContext):
-    kb = [
-        [KeyboardButton(text="Назад")],
-    ]
-    keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-    await message.answer("Поки в розробці!", reply_markup=keyboard)
-
-    await cmd_ip(message, state)
-
-
-@router.message(lambda message: message.text == "Список моїх IP-адрес")
-async def list_my_ip(message: types.Message, state: FSMContext):
-    kb = [
-        [KeyboardButton(text="Назад")],
-    ]
-    keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-    await message.answer("Список ваших IP-адрес", reply_markup=keyboard)
-    result = await list_user_ip(message.from_user.id)
-    if result:
-        for id, user_id, ip, description, *_ in result:
-            await asyncio.sleep(0.5)
-            await message.answer(f"№: {id}, IP-адрес: {ip}, Опис: {description}")
-        await asyncio.sleep(0.5)
+@router.callback_query(F.data.startswith(EXT_ON + ":"))
+async def enable_ip(callback: types.CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    row = await list_user_ip_by_id(parse_id(callback.data) or 0)
+    # вмикати можна лише власні IP-адреси
+    if row is None or row[1] != user_id:
+        notice = "❌ Такої IP-адреси немає. Виберіть іншу."
     else:
-        await asyncio.sleep(1)
-        await message.answer(
-            "Ви не маєте жодних IP-адрес ;(\nСтворіть нову IP-адресу в вкладці Додати IP"
-        )
-        await state.clear()
-        await asyncio.sleep(1)
-    await cmd_ip(message, state)
+        id, _, ip, description, *_ = row
+        info = f"№: {id}, адрес: {ip}, Опис: {description}"
+        if await insert_active_user_ip(*row) == "ip адрес успішно додано":
+            notice = f"✅ IP-адресу активовано:\n{info}"
+        else:
+            notice = f"ℹ️ IP-адреса вже була активована:\n{info}"
+        start_ip_check(callback.bot, user_id)
+    text, markup = await extended_main_screen(user_id, notice)
+    await render(callback, text, markup)
 
 
-@router.message(lambda message: message.text == "Увімкнути бота")
-async def turn_on(message: types.Message, state: FSMContext):
-    result = await list_user_ip(message.from_user.id)
-    if not result:
-        await asyncio.sleep(0.5)
-        await message.answer(
-            "Ви не маєте жодних ip адрес ;(\nСтворіть нову ip адресу в вкладці (Список моїх ip адрес -> Додати ip)"
+@router.callback_query(F.data == EXT_OFF)
+async def choose_ip_to_disable(callback: types.CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    active = await list_user_active_ip(user_id)
+    if not active:
+        text, markup = await extended_main_screen(
+            user_id, "ℹ️ У вас немає IP-адрес під наглядом."
         )
-        await state.clear()
-        await asyncio.sleep(1)
-        await cmd_ip(message, state)
+        await render(callback, text, markup)
         return
-
-    kb = [
-        [KeyboardButton(text="Назад")],
+    items = [
+        (id, "⏹ " + ip_label(ip, description)) for id, _, ip, description, *_ in active
     ]
-    keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-    await message.answer(
-        "Виберіть № ip адреси яку бажаєте увімкнути", reply_markup=keyboard
+    await render(
+        callback,
+        "⏹ Оберіть IP-адресу, яку бажаєте вимкнути",
+        pick_keyboard(EXT_OFF, items, EXT_MENU),
     )
-    await state.set_state(Form.turn_on)
-    for id, user_id, ip, description, *_ in result:
-        await asyncio.sleep(0.5)
-        await message.answer(f"№: {id}, ip адрес: {ip}, Опис: {description}")
 
 
-@router.message(lambda message: message.text == "Вимкнути бота")
-async def turn_off(message: types.Message, state: FSMContext):
-    result = await list_user_active_ip(message.from_user.id)
-    if not result:
-        await asyncio.sleep(0.5)
-        await message.answer(
-            "Ви не маєте жодних ip адрес ;(\nСтворіть нову ip адресу в вкладці (Список моїх ip адрес -> Додати ip)"
-        )
-        await state.clear()
-        await asyncio.sleep(1)
-        await cmd_menu(message)
-        return
-
-    kb = [
-        [KeyboardButton(text="Назад")],
-    ]
-    keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
-    await message.answer(
-        "Виберіть № ip адреси яку бажаєте вимкнути", reply_markup=keyboard
-    )
-    await state.set_state(Form.turn_off)
-    for id, user_id, ip, description, *_ in result:
-        await asyncio.sleep(0.5)
-        await message.answer(f"№: {id}, IP-адрес: {ip}, Опис: {description}")
-
-
-@router.message(Form.turn_off)
-async def turn_off2(message: types.Message, state: FSMContext):
-    if message.text == "Назад":
-        await state.clear()
-        await cmd_menu(message)
-        return
-
-    try:
-        ip_id = int(message.text or "")
-    except ValueError:
-        await message.answer("Будь ласка, введіть число!")
-        return
-
+@router.callback_query(F.data.startswith(EXT_OFF + ":"))
+async def disable_ip(callback: types.CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    ip_id = parse_id(callback.data)
     # шукаємо серед власних активних IP-адрес користувача
-    active = await list_user_active_ip(message.from_user.id)
-    row = next((r for r in active if r[0] == ip_id), None)
+    row = next((r for r in await list_user_active_ip(user_id) if r[0] == ip_id), None)
     if row is None:
-        await message.reply(
-            "Ви вибрали не правильний IP-адрес\nзвірьте номер вибраного IP-адресу з наявними"
+        notice = "ℹ️ IP-адреса вже була деактивована."
+    else:
+        id, _, ip, description, *_ = row
+        await delete_active_user_ip(id)
+        notice = (
+            f"✅ IP-адресу деактивовано:\n№: {id}, адрес: {ip}, Опис: {description}"
         )
-        return
-
-    id, user_id, ip, description, *_ = row
-    result1 = f"\n№: {id}, адрес: {ip}, Опис: {description}"
-    result_2 = await delete_active_user_ip(id)
-    if result_2 == "IP-адресу успішно видаленно":
-        await message.reply(f"IP-адресу успішно деактивовано: {result1}")
-        await state.clear()
-        await cmd_menu(message)
-    elif result_2 == "IP-адреси не існує":
-        await message.reply(
-            f"IP-адреса вже була деактивована, виберіть іншу: {result1}"
-        )
-        await turn_off(message, state)
+    text, markup = await extended_main_screen(user_id, notice)
+    await render(callback, text, markup)
 
 
-# Хендлер стану Form.turn_on має стояти після кнопок меню: aiogram перебирає хендлери
-# у порядку реєстрації, і інакше текст кнопки сприймався б як номер IP-адреси
-@router.message(Form.turn_on)
-async def turn_on2(message: types.Message, state: FSMContext):
-    if message.text == "Назад":
-        await state.clear()
-        await cmd_menu(message)
-        return
-
-    try:
-        ip_id = int(message.text or "")
-    except ValueError:
-        await message.reply("Виберіть інший ip адрес")
-        await turn_on(message, state)
-        return
-
-    result = await list_user_ip_by_id(ip_id)
-    # можна вмикати лише власні IP-адреси
-    if result is None or result[1] != message.from_user.id:
-        await message.reply("Виберіть інший ip адрес")
-        await turn_on(message, state)
-        return
-
-    id, user_id, ip, description, *_ = result
-    result1 = f"\n№: {id}, адрес: {ip}, Опис: {description}"
-
-    result_2 = await insert_active_user_ip(*result)
-    if result_2 == "ip адрес успішно додано":
-        await message.reply(f"ip адресу активовано: {result1}")
-        await state.clear()
-        await cmd_menu(message)
-        await main_ip_check(message)
-    elif result_2 == "ip адрес вже інсує":
-        await message.reply(f"ip адреса вже була активована, виберіть іншу: {result1}")
-        await turn_on(message, state)
-        await main_ip_check(message)
+# ---- перевірка наявності світла за IP
 
 
-async def check_light(message: types.Message, id, user_id, ip, description, is_active):
+async def check_light(bot: Bot, id, user_id, ip, description, is_active):
     try:
         await aioping.ping(ip)
         status = True
     except TimeoutError:
         status = False
     except socket.gaierror:
-        await message.answer(
-            f"Не правильний формат IP-адреси! №: {id} адрес: {ip}\nВпевніться чи він відповідає стандарту ipv4\nНаприклад 81.20.204.106 "
+        await send_panel(
+            bot,
+            user_id,
+            f"Не правильний формат IP-адреси! №: {id} адрес: {ip}\n"
+            "Впевніться чи він відповідає стандарту ipv4\nНаприклад 81.20.204.106 ",
+            extended_keyboard(),
         )
         await delete_active_user_ip(id)
         return
@@ -434,20 +320,34 @@ async def check_light(message: types.Message, id, user_id, ip, description, is_a
 
     await update_user_status(status, user_id, id, ip)
     if status:
-        await message.answer(f"🟢 Світло є!\nАдрес: {ip}\nОпис: {description}\n№: {id}")
+        text = f"🟢 Світло є!\nАдрес: {ip}\nОпис: {description}\n№: {id}"
     else:
-        await message.answer(
-            f"🔴 Світла немає!\nАдрес: {ip}\nОпис: {description}\n№: {id}"
-        )
+        text = f"🔴 Світла немає!\nАдрес: {ip}\nОпис: {description}\n№: {id}"
+    # сповіщення стає новою панеллю: старе повідомлення зникає, а кнопки лишаються під рукою
+    await send_panel(bot, user_id, text, extended_keyboard())
 
 
 # номер поточного запуску циклу перевірки для кожного користувача:
 # новий запуск робить попередній застарілим, тож працює лише один цикл на користувача
 check_generation: dict[int, int] = {}
+_background_tasks: set[asyncio.Task] = set()
 
 
-async def main_ip_check(message: types.Message):
-    user_id = message.from_user.id
+def start_ip_check(bot: Bot, user_id: int):
+    """Запускає цикл перевірки у фоні (прикриваючи собою попередній цикл користувача)."""
+    task = asyncio.create_task(_run_ip_check(bot, user_id))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+async def _run_ip_check(bot: Bot, user_id: int):
+    try:
+        await main_ip_check(bot, user_id)
+    except Exception:
+        logger.exception("Цикл перевірки IP користувача %s зупинився", user_id)
+
+
+async def main_ip_check(bot: Bot, user_id: int):
     generation = check_generation.get(user_id, 0) + 1
     check_generation[user_id] = generation
 
@@ -461,7 +361,7 @@ async def main_ip_check(message: types.Message):
             id, _, ip, description = row[:4]
             is_active = row[-1]
             try:
-                await check_light(message, id, user_id, ip, description, is_active)
+                await check_light(bot, id, user_id, ip, description, is_active)
             except TelegramForbiddenError:
                 # користувач заблокував бота
                 return
