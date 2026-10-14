@@ -6,6 +6,7 @@
 import asyncio
 import hashlib
 import hmac
+import json
 import os
 import time
 import uuid
@@ -21,6 +22,7 @@ EMPTY_BODY_SHA256 = hashlib.sha256(b"").hexdigest()
 # 1010 - токен недійсний, 1011 - токен прострочений
 TOKEN_ERROR_CODES = {1010, 1011}
 DEVICES_PATH = "/v1.0/iot-01/associated-users/devices"
+MQ_CONFIG_PATH = "/v1.0/iot-03/open-hub/access-config"
 DEVICES_PAGE_SIZE = 100
 MAX_DEVICE_PAGES = 10
 
@@ -37,6 +39,7 @@ class TuyaClient:
         self.access_secret = access_secret
         self.endpoint = endpoint.rstrip("/")
         self._token = None
+        self._uid = None
         self._token_expires = 0.0
         self._token_lock = asyncio.Lock()
         self._session = None
@@ -52,10 +55,11 @@ class TuyaClient:
             )
         return self._session
 
-    def _sign_headers(self, method, url, token):
+    def _sign_headers(self, method, url, token, body=b""):
         t = str(int(time.time() * 1000))
         nonce = str(uuid.uuid4())
-        string_to_sign = f"{method}\n{EMPTY_BODY_SHA256}\n\n{url}"
+        body_sha256 = hashlib.sha256(body).hexdigest() if body else EMPTY_BODY_SHA256
+        string_to_sign = f"{method}\n{body_sha256}\n\n{url}"
         message = self.access_id + (token or "") + t + nonce + string_to_sign
         sign = (
             hmac.new(self.access_secret.encode(), message.encode(), hashlib.sha256)
@@ -73,16 +77,29 @@ class TuyaClient:
             headers["access_token"] = token
         return headers
 
-    async def _call(self, path, params=None, token=None):
+    async def _call(self, path, params=None, token=None, body=None):
+        """GET (без body) або POST з JSON-тілом; повертає поле result відповіді."""
         url = path
         if params:
             # параметри в підписі мають іти за алфавітом
             url += "?" + "&".join(f"{key}={params[key]}" for key in sorted(params))
-        headers = self._sign_headers("GET", url, token)
+        method = "GET" if body is None else "POST"
+        # байти, які підписуємо, мають збігатися з надісланими
+        payload = (
+            json.dumps(body, separators=(",", ":")).encode()
+            if body is not None
+            else b""
+        )
+        headers = self._sign_headers(method, url, token, payload)
+        if body is not None:
+            headers["Content-Type"] = "application/json"
 
         session = await self._get_session()
-        async with session.get(
-            URL(self.endpoint + url, encoded=True), headers=headers
+        async with session.request(
+            method,
+            URL(self.endpoint + url, encoded=True),
+            headers=headers,
+            data=payload if body is not None else None,
         ) as response:
             try:
                 data = await response.json(content_type=None)
@@ -100,19 +117,37 @@ class TuyaClient:
             if force or not self._token or time.time() >= self._token_expires - 60:
                 result = await self._call("/v1.0/token", {"grant_type": 1})
                 self._token = result["access_token"]
+                self._uid = result.get("uid")
                 self._token_expires = time.time() + int(result.get("expire_time", 7200))
             return self._token
 
-    async def _api(self, path, params=None):
+    async def _api(self, path, params=None, body=None):
         token = await self._get_token()
         try:
-            return await self._call(path, params, token)
+            return await self._call(path, params, token, body)
         except TuyaError as error:
             if error.code not in TOKEN_ERROR_CODES:
                 raise
         # токен втратив чинність раніше за розклад - беремо новий і повторюємо
         token = await self._get_token(force=True)
-        return await self._call(path, params, token)
+        return await self._call(path, params, token, body)
+
+    async def get_mq_config(self):
+        """Параметри MQTT-каналу Tuya (open-hub), через який приходять події пристроїв.
+
+        Повертає {"url", "client_id", "username", "password", "source_topic", "expire_time"}.
+        """
+        await self._get_token()
+        return await self._api(
+            MQ_CONFIG_PATH,
+            body={
+                "uid": self._uid,
+                "link_id": f"energo-bot.{uuid.uuid4()}",
+                "link_type": "mqtt",
+                "topics": "device",
+                "msg_encrypted_version": "2.0",
+            },
+        )
 
     async def list_devices(self):
         """Усі пристрої акаунтів, прив'язаних до проєкту: [{"id", "name", "online"}, ...].

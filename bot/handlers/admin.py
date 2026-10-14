@@ -4,8 +4,13 @@ from aiogram import Bot, F, Router, types
 from aiogram.filters import Command
 from aiogram.types import FSInputFile
 from handlers.logic import list_admin_info
-from handlers.menus import (ADM_ACTIVE, ADM_GUESTS, ADM_USERS, admin_keyboard,
-                            back_keyboard)
+from handlers.menus import (
+    ADM_ACTIVE,
+    ADM_GUESTS,
+    ADM_USERS,
+    admin_keyboard,
+    back_keyboard,
+)
 from openpyxl import Workbook
 from ui import delete_quietly, send_panel
 

@@ -3,6 +3,8 @@ aiogram
 aiosqlite
 openpyxl
 tzdata
+paho-mqtt
+cryptography
 black
 isort
 ruff

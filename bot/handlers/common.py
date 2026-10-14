@@ -6,12 +6,25 @@ from aiogram import Bot, F, Router, types
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from handlers.comands import extended_main_screen, start_ip_check, with_notice
-from handlers.logic import (MODE_EXTENDED, MODE_STANDARD, add_gosti,
-                            get_user_mode, set_user_mode)
-from handlers.menus import (CB_MODE_CHOOSE, CB_MODE_EXTENDED, CB_MODE_STANDARD,
-                            MENU_MAIN, VERSION_TEXT, back_keyboard,
-                            mode_choice_keyboard, mode_choice_text)
+from handlers.logic import (
+    MODE_EXTENDED,
+    MODE_STANDARD,
+    add_gosti,
+    get_user_mode,
+    set_user_mode,
+)
+from handlers.menus import (
+    CB_MODE_CHOOSE,
+    CB_MODE_EXTENDED,
+    CB_MODE_STANDARD,
+    MENU_MAIN,
+    VERSION_TEXT,
+    back_keyboard,
+    mode_choice_keyboard,
+    mode_choice_text,
+)
 from handlers.standard import standard_screen
+from settings import extended_mode_enabled
 from ui import delete_quietly, edit_panel, remove_reply_keyboard, send_panel
 
 router = Router()
@@ -21,8 +34,20 @@ fallback_router = Router()
 GREETING = "Привіт, я створений для інформування стану електроенергії."
 
 
+def extended_on(event) -> bool:
+    """Фільтр: хендлер працює, лише якщо розширений режим увімкнено."""
+    return extended_mode_enabled()
+
+
 async def main_screen(user_id: int, notice: str = ""):
     """(текст, кнопки) головного екрана відповідно до режиму користувача."""
+    if not extended_mode_enabled():
+        # розширений режим вимкнено: усі, зокрема колишні користувачі IP-моніторингу,
+        # працюють у стандартному і вибору режиму не бачать
+        if await get_user_mode(user_id) != MODE_STANDARD:
+            await set_user_mode(user_id, MODE_STANDARD)
+        return await standard_screen(user_id, notice)
+
     mode = await get_user_mode(user_id)
     if mode == MODE_STANDARD:
         return await standard_screen(user_id, notice)
@@ -80,12 +105,14 @@ async def cmd_restart(message: types.Message, state: FSMContext, bot: Bot):
     await state.clear()
     user_id = message.from_user.id
     await delete_quietly(bot, message.chat.id, message.message_id)
-    start_ip_check(bot, user_id)
-    text, markup = await main_screen(
-        user_id,
-        "🔁 Функції бота перезавантажено\n"
-        "Для зупинення роботи бота вимкніть IP: ⏹ Вимкнути бота",
-    )
+    notice = ""
+    if extended_mode_enabled():
+        start_ip_check(bot, user_id)
+        notice = (
+            "🔁 Функції бота перезавантажено\n"
+            "Для зупинення роботи бота вимкніть IP: ⏹ Вимкнути бота"
+        )
+    text, markup = await main_screen(user_id, notice)
     await send_panel(bot, user_id, text, markup)
 
 
@@ -100,7 +127,7 @@ async def show_main(callback: types.CallbackQuery, state: FSMContext):
     )
 
 
-@router.callback_query(F.data == CB_MODE_CHOOSE)
+@router.callback_query(F.data == CB_MODE_CHOOSE, extended_on)
 async def choose_mode(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
@@ -115,13 +142,25 @@ async def choose_mode(callback: types.CallbackQuery, state: FSMContext):
     )
 
 
-@router.callback_query(F.data.in_({CB_MODE_STANDARD, CB_MODE_EXTENDED}))
+@router.callback_query(F.data.in_({CB_MODE_STANDARD, CB_MODE_EXTENDED}), extended_on)
 async def set_mode(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
     user_id = callback.from_user.id
     mode = MODE_STANDARD if callback.data == CB_MODE_STANDARD else MODE_EXTENDED
     await set_user_mode(user_id, mode)
+    text, markup = await main_screen(user_id)
+    await edit_panel(
+        callback.bot, user_id, text, markup, message_id=message_id_of(callback)
+    )
+
+
+@fallback_router.callback_query()
+async def stale_callback(callback: types.CallbackQuery, state: FSMContext):
+    """Кнопка зі старої панелі (наприклад, розширеного режиму): повертаємо головний екран."""
+    await callback.answer()
+    await state.clear()
+    user_id = callback.from_user.id
     text, markup = await main_screen(user_id)
     await edit_panel(
         callback.bot, user_id, text, markup, message_id=message_id_of(callback)

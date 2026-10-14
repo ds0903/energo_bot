@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from handlers import admin, comands, common, standard
 from handlers.logic import init_db, list_admin_info
 from monitor import tuya_monitor
+from settings import extended_mode_enabled
 from tuya import get_client
 
 load_dotenv()  # токени та ключі беруться з файлу .env у корені проєкту
@@ -22,7 +23,9 @@ dp = Dispatcher()
 # порядок важливий: команди раніше за хендлери станів, а fallback - останнім
 dp.include_router(common.router)
 dp.include_router(standard.router)
-dp.include_router(comands.router)
+if extended_mode_enabled():
+    # розширений режим (моніторинг IP): код збережено, але за замовчуванням вимкнено
+    dp.include_router(comands.router)
 dp.include_router(admin.router)
 dp.include_router(common.fallback_router)
 

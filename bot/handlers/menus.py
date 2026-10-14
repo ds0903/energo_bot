@@ -1,14 +1,13 @@
 """Тексти та інлайн-клавіатури бота."""
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from settings import ip_check_minutes, tuya_location
+from settings import extended_mode_enabled, ip_check_minutes, tuya_location
 
 # callback_data кнопок
 MENU_MAIN = "menu:main"
 CB_MODE_CHOOSE = "mode:choose"
 CB_MODE_STANDARD = "mode:standard"
 CB_MODE_EXTENDED = "mode:extended"
-STD_REFRESH = "std:refresh"
 STD_NOTIFY_ON = "std:notify:on"
 STD_NOTIFY_OFF = "std:notify:off"
 EXT_MENU = "ext:menu"
@@ -72,13 +71,11 @@ def standard_keyboard(notifications_on: bool):
         notify = ("🔕 Вимкнути сповіщення", STD_NOTIFY_OFF)
     else:
         notify = ("🔔 Увімкнути сповіщення", STD_NOTIFY_ON)
-    return _keyboard(
-        [
-            [("🔄 Оновити", STD_REFRESH)],
-            [notify],
-            [("⚙️ Змінити режим", CB_MODE_CHOOSE)],
-        ]
-    )
+    rows = [[notify]]
+    if extended_mode_enabled():
+        # поки розширений режим вимкнено, змінювати режим немає на що
+        rows.append([("⚙️ Змінити режим", CB_MODE_CHOOSE)])
+    return _keyboard(rows)
 
 
 def extended_keyboard():

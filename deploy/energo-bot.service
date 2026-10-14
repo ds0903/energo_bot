@@ -1,0 +1,19 @@
+[Unit]
+Description=energo_bot Telegram bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+# Змініть User і шляхи, якщо проєкт лежить деінде (WorkingDirectory обов'язково корінь
+# проєкту: бот шукає energo_bot.db відносно нього)
+User=ubuntu
+WorkingDirectory=/home/ubuntu/energo_bot
+ExecStart=/home/ubuntu/energo_bot/.venv/bin/python bot/bot.py
+Environment=PYTHONUNBUFFERED=1
+# Якщо бот упав - піднімається за 5 секунд
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

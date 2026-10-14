@@ -3,9 +3,8 @@ from datetime import datetime
 
 from aiogram import F, Router, types
 from handlers.logic import get_notifications, get_tuya_state, set_notifications
-from handlers.menus import (STD_NOTIFY_OFF, STD_NOTIFY_ON, STD_REFRESH,
-                            standard_keyboard)
-from monitor import device_suffix, fetch_watched, now_kyiv
+from handlers.menus import STD_NOTIFY_OFF, STD_NOTIFY_ON, standard_keyboard
+from monitor import device_suffix, fetch_watched, last_check_time, poll_seconds
 from settings import tuya_location
 from tuya import get_client
 from ui import edit_panel
@@ -26,7 +25,10 @@ async def status_text() -> str:
         return NOT_CONFIGURED_TEXT
 
     try:
-        devices = await fetch_watched(client)
+        # беремо відповідь останнього опитування бота, а не питаємо Tuya щоразу: так
+        # жодні дії користувачів не витрачають квоту запитів. До API іде лише запит,
+        # якщо опитування давно не відбувалось (наприклад, бот щойно запущено).
+        devices = await fetch_watched(client, max_age=poll_seconds() + 60)
     except Exception:
         logger.warning("Не вдалося отримати статус з Tuya", exc_info=True)
         return "⚠️ Не вдалося отримати статус світла. Спробуйте пізніше."
@@ -49,11 +51,14 @@ async def status_text() -> str:
 async def standard_screen(user_id: int, notice: str = ""):
     """(текст, кнопки) головного екрана стандартного режиму."""
     notifications_on = await get_notifications(user_id)
+    # статус спершу: він може оновити кеш, з якого береться час перевірки
+    status = await status_text()
     footer = "🔔 Сповіщення увімкнено" if notifications_on else "🔕 Сповіщення вимкнено"
-    # час оновлення робить текст новим, тож кнопка «Оновити» завжди щось змінює
-    footer += f"\nОновлено о {now_kyiv().strftime('%H:%M:%S')}"
+    checked = last_check_time()
+    if checked is not None:
+        footer += f"\nПеревірено о {checked.strftime('%H:%M')}"
     parts = [notice] if notice else []
-    parts += [await status_text(), footer]
+    parts += [status, footer]
     return "\n\n".join(parts), standard_keyboard(notifications_on)
 
 
@@ -66,12 +71,6 @@ async def show_standard(callback: types.CallbackQuery, notice: str = ""):
         markup,
         message_id=callback.message.message_id if callback.message else None,
     )
-
-
-@router.callback_query(F.data == STD_REFRESH)
-async def refresh(callback: types.CallbackQuery):
-    await callback.answer()
-    await show_standard(callback)
 
 
 @router.callback_query(F.data.in_({STD_NOTIFY_ON, STD_NOTIFY_OFF}))
