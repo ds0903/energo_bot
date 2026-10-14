@@ -1,65 +1,67 @@
 import asyncio
 import logging
+import os
 
-# import time
 from aiogram import Bot, Dispatcher, types
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters.command import Command
-from handlers import admin, comands
-from handlers.logic import list_admin_info
+from dotenv import load_dotenv
+from handlers import admin, comands, standard
+from handlers.logic import init_db, list_admin_info
+from monitor import tuya_monitor
+from tuya import get_client
+
+load_dotenv()  # токени та ключі беруться з файлу .env у корені проєкту
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# bot = Bot(token=os.getenv("BOT_TOKEN"))
-bot = Bot(token="6739109992:AAFGEIXK2knrwgLL8V2_a8r6wOdgFaMab6o")
-# bot = Bot(token='7068876850:AAFZxGPnwORoVuATWMPnhS9xCaYr8UaaolQ') # На серваке
+bot = Bot(token=os.environ["BOT_TOKEN"])
 dp = Dispatcher()
 
-
-async def delete_webhook():
-    await bot.delete_webhook()
-
-
-# dp["started_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-
 dp.include_router(comands.router)
+dp.include_router(standard.router)
 dp.include_router(admin.router)
 
 
 @dp.message(Command("remind"))
 async def remind(message: types.Message):
-    if message.from_user.username == "ds0903":
-        data = await list_admin_info(status="3")
-        for i in data:
-            (
-                id,
-                user_id,
-                is_bot,
-                first_name,
-                last_name,
-                username,
-                language_code,
-                is_premium,
-                added_to_attachment_menu,
-                can_join_groups,
-                can_read_all_group_messages,
-                supports_inline_queries,
-                can_connect_to_business,
-                current_time,
-            ) = i
+    if not admin.is_admin(message):
+        await message.answer("Доступ заборонено")
+        return
 
-            # user_id = 5987399475
+    for row in await list_admin_info(status="3"):
+        user_id = row[1]
+        try:
             await bot.send_message(
                 chat_id=user_id,
                 text="Вийшла нова версія бота!\nДля перегляду змін введіть команду /version.\nБудь ласка, перезавантажте функції бота, ввівши команду /restart.\n",
             )
-    else:
-        await message.answer("Доступ заборонено")
+        except TelegramAPIError:
+            # наприклад, користувач заблокував бота - не зупиняємо розсилку
+            logger.exception("Не вдалося надіслати нагадування користувачу %s", user_id)
 
 
 async def main():
-    await delete_webhook()
-    await dp.start_polling(bot)
-    # await start_main_check(message=None)
+    await init_db()
+    await bot.delete_webhook()
+
+    client = get_client()
+    monitor_task = None
+    if client is None:
+        logger.warning(
+            "TUYA_ACCESS_ID / TUYA_ACCESS_SECRET не задані в .env - "
+            "моніторинг розеток Tuya (стандартний режим) вимкнено"
+        )
+    else:
+        monitor_task = asyncio.create_task(tuya_monitor(bot, client))
+
+    try:
+        await dp.start_polling(bot)
+    finally:
+        if monitor_task is not None:
+            monitor_task.cancel()
+            await client.close()
 
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
 .PHONY: run
 run:
-	python bot\bot.py
+	python bot/bot.py
 
 .PHONY: check
 check:
-	python -m ruff . && python -m black --check . && python -m isort --check .
+	python -m ruff check . && python -m black --check . && python -m isort --check .
 
 .PHONY: fix
 fix:

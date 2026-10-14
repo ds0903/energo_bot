@@ -1,5 +1,8 @@
 python-dotenv
 aiogram
+aiosqlite
+openpyxl
+tzdata
 black
 isort
 ruff

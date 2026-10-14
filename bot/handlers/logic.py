@@ -1,9 +1,9 @@
 import aiosqlite
 
 datab2 = "energo_bot.db"
-
-
 # datab2 = "/home/ubuntu/energo_bot.db"
+
+
 async def insert_data(
     user_id,
     ip,
@@ -46,8 +46,11 @@ async def delete_data(id):
         async with conn.cursor() as cursor:
 
             await cursor.execute("DELETE FROM ip_main WHERE id = ?", (id,))
+            deleted = cursor.rowcount
+            # видалена IP-адреса не повинна далі пінгуватися
+            await cursor.execute("DELETE FROM active_users_ip WHERE id = ?", (id,))
 
-            if cursor.rowcount == 1:
+            if deleted == 1:
                 data = f"IP-адресу №: {id} успішно видаленно"
             else:
                 data = f"IP-адреси №: {id} не існує"
@@ -62,12 +65,7 @@ async def list_user_ip(user_id):
         async with conn.cursor() as cursor:
 
             await cursor.execute("SELECT * FROM ip_main WHERE user_id = ?", (user_id,))
-            results = await cursor.fetchall()
-
-            if results:
-                return results
-            else:
-                return None, None, None, None, None, None, None, None
+            return await cursor.fetchall()
 
 
 async def list_user_ip_by_id(id):
@@ -75,27 +73,10 @@ async def list_user_ip_by_id(id):
         async with conn.cursor() as cursor:
 
             await cursor.execute("SELECT * FROM ip_main WHERE id = ?", (id,))
-            results = await cursor.fetchone()
-
-            if results:
-                return results
-            else:
-                return None, None, None, None, None, None, None, None
+            return await cursor.fetchone()
 
 
-async def update_user_ip(data):
-    async with aiosqlite.connect(datab2) as conn:
-        async with conn.cursor() as cursor:
-            ip_id, new_ip, new_description = data
-            await cursor.execute(
-                "UPDATE ip_main SET ip = ?, description = ? WHERE id = ?",
-                (new_ip, new_description, ip_id),
-            )
-            await conn.commit()
-
-        # хранение активних ip адресов для пингования
-
-
+# хранение активних ip адресов для пингования
 async def insert_active_user_ip(
     id,
     user_id,
@@ -144,9 +125,9 @@ async def delete_active_user_ip(id):
             await cursor.execute("DELETE FROM active_users_ip WHERE id = ?", (id,))
 
             if cursor.rowcount == 1:
-                data = f"IP-адресу успішно видаленно"
+                data = "IP-адресу успішно видаленно"
             else:
-                data = f"IP-адреси не існує"
+                data = "IP-адреси не існує"
 
             await conn.commit()
 
@@ -161,12 +142,7 @@ async def list_user_active_ip(user_id):
             await cursor.execute(
                 "SELECT * FROM active_users_ip WHERE user_id = ?", (user_id,)
             )
-            results = await cursor.fetchall()
-
-            if results:
-                return results
-            else:
-                return None, None, None, None, None, None, None, None, None
+            return await cursor.fetchall()
 
 
 async def update_user_status(is_active, user_id, id, ip):
@@ -179,22 +155,6 @@ async def update_user_status(is_active, user_id, id, ip):
                 (is_active, user_id, ip, id),
             )
             await conn.commit()
-
-
-async def get_is_active(user_id, id):
-
-    async with aiosqlite.connect(datab2) as conn:
-        async with conn.cursor() as cursor:
-
-            await cursor.execute(
-                "SELECT is_active FROM active_users_ip WHERE user_id = ? AND id = ?",
-                (user_id, id),
-            )
-            result = await cursor.fetchone()
-
-            await conn.commit()
-
-            return result
 
 
 async def add_gosti(
@@ -262,10 +222,124 @@ async def list_admin_info(status):
             elif status == "3":  # Відвідувачі
                 await cursor.execute("SELECT * FROM gosti")
             else:
-                return None
-            results = await cursor.fetchall()
+                return []
+            return await cursor.fetchall()
 
-            if results:
-                return results
-            else:
-                return None
+
+# ---- режими роботи та моніторинг світла через Tuya (стандартний режим)
+
+MODE_STANDARD = "standard"
+MODE_EXTENDED = "extended"
+
+
+async def init_db():
+    """Створює таблиці стандартного режиму, якщо їх ще немає."""
+    async with aiosqlite.connect(datab2) as conn:
+        await conn.executescript("""
+            CREATE TABLE IF NOT EXISTS user_modes (
+                user_id INTEGER PRIMARY KEY,
+                mode TEXT NOT NULL,
+                notify INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS tuya_state (
+                device_id TEXT PRIMARY KEY,
+                online INTEGER NOT NULL,
+                since TEXT NOT NULL
+            );
+            """)
+        # таблиця могла бути створена попередньою версією без колонки notify
+        async with conn.execute("PRAGMA table_info(user_modes)") as cursor:
+            columns = {row[1] for row in await cursor.fetchall()}
+        if "notify" not in columns:
+            await conn.execute(
+                "ALTER TABLE user_modes ADD COLUMN notify INTEGER NOT NULL DEFAULT 1"
+            )
+        await conn.commit()
+
+
+async def get_user_mode(user_id):
+    """Режим користувача або None, якщо він ще не вибирав."""
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                "SELECT mode FROM user_modes WHERE user_id = ?", (user_id,)
+            )
+            row = await cursor.fetchone()
+            if row:
+                return row[0]
+
+            # ті, хто вже користувався моніторингом IP-адрес, лишаються в розширеному
+            await cursor.execute(
+                "SELECT 1 FROM ip_main WHERE user_id = ? LIMIT 1", (user_id,)
+            )
+            if await cursor.fetchone():
+                await cursor.execute(
+                    "INSERT OR IGNORE INTO user_modes (user_id, mode) VALUES (?, ?)",
+                    (user_id, MODE_EXTENDED),
+                )
+                await conn.commit()
+                return MODE_EXTENDED
+            return None
+
+
+async def set_user_mode(user_id, mode):
+    async with aiosqlite.connect(datab2) as conn:
+        # upsert, а не REPLACE, щоб зміна режиму не скидала налаштування сповіщень
+        await conn.execute(
+            "INSERT INTO user_modes (user_id, mode) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET mode = excluded.mode",
+            (user_id, mode),
+        )
+        await conn.commit()
+
+
+async def get_notifications(user_id):
+    """Чи увімкнені сповіщення про світло (за замовчуванням так)."""
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                "SELECT notify FROM user_modes WHERE user_id = ?", (user_id,)
+            )
+            row = await cursor.fetchone()
+            return bool(row[0]) if row else True
+
+
+async def set_notifications(user_id, enabled):
+    async with aiosqlite.connect(datab2) as conn:
+        await conn.execute(
+            "UPDATE user_modes SET notify = ? WHERE user_id = ?",
+            (int(enabled), user_id),
+        )
+        await conn.commit()
+
+
+async def list_notify_user_ids():
+    """Користувачі стандартного режиму з увімкненими сповіщеннями про світло."""
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                "SELECT user_id FROM user_modes WHERE mode = ? AND notify = 1",
+                (MODE_STANDARD,),
+            )
+            return [row[0] for row in await cursor.fetchall()]
+
+
+async def get_tuya_state(device_id):
+    """(online, since) або None, якщо стан ще не фіксувався."""
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                "SELECT online, since FROM tuya_state WHERE device_id = ?",
+                (device_id,),
+            )
+            row = await cursor.fetchone()
+            return (bool(row[0]), row[1]) if row else None
+
+
+async def set_tuya_state(device_id, online, since):
+    async with aiosqlite.connect(datab2) as conn:
+        await conn.execute(
+            "INSERT OR REPLACE INTO tuya_state (device_id, online, since) VALUES (?, ?, ?)",
+            (device_id, int(online), since),
+        )
+        await conn.commit()
