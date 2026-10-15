@@ -291,6 +291,10 @@ async def init_db():
                 user_id INTEGER PRIMARY KEY,
                 message_id INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS schedule_photos (
+                user_id INTEGER PRIMARY KEY,
+                message_id INTEGER NOT NULL
+            );
             """)
         # таблиця могла бути створена попередньою версією без колонки notify
         async with conn.execute("PRAGMA table_info(user_modes)") as cursor:
@@ -396,6 +400,36 @@ async def set_panel(user_id, message_id):
             (user_id, message_id),
         )
         await conn.commit()
+
+
+async def set_schedule_photo(user_id, message_id):
+    """Запам'ятовує фото графіка користувача (одне на людину)."""
+    async with aiosqlite.connect(datab2) as conn:
+        await conn.execute(
+            "INSERT INTO schedule_photos (user_id, message_id) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET message_id = excluded.message_id",
+            (user_id, message_id),
+        )
+        await conn.commit()
+
+
+async def pop_schedule_photo(user_id, only_message_id=None):
+    """Забирає (і забуває) id фото графіка; з only_message_id - лише якщо збігається."""
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                "SELECT message_id FROM schedule_photos WHERE user_id = ?", (user_id,)
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            if only_message_id is not None and row[0] != only_message_id:
+                return None
+            await cursor.execute(
+                "DELETE FROM schedule_photos WHERE user_id = ?", (user_id,)
+            )
+            await conn.commit()
+            return row[0]
 
 
 async def get_tuya_state(device_id):

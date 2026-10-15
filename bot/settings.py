@@ -58,6 +58,11 @@ def schedule_refresh_minutes() -> int:
     return env_int("SCHEDULE_REFRESH_MINUTES", 60)
 
 
+def schedule_evening_minutes() -> int:
+    """Як часто знімати ввечері, поки ДТЕК не опублікував графік на завтра (хвилини)."""
+    return env_int("SCHEDULE_EVENING_MINUTES", 20)
+
+
 def schedule_city() -> str:
     return (os.getenv("SCHEDULE_CITY") or "").strip() or "Боярка"
 

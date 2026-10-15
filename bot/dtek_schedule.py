@@ -13,12 +13,15 @@ import os
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
+from datetime import time as dt_time
+from datetime import timedelta
 from pathlib import Path
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
-from settings import (schedule_city, schedule_house, schedule_refresh_minutes,
-                      schedule_street)
+from settings import (schedule_city, schedule_evening_minutes, schedule_house,
+                      schedule_refresh_minutes, schedule_street)
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +34,47 @@ BLOCK = ".discon-schedule-interact"
 CAPTURE_TIMEOUT_SECONDS = 180
 # після невдалої спроби пробуємо знову раніше, ніж за повний інтервал
 RETRY_AFTER_FAILURE_MINUTES = 10
+# знімок застарів, якщо новішого не вдавалось зробити так довго (користувач бачить попередження)
+STALE_AFTER_MINUTES = 180
+# спроб за один цикл (з паузою між ними) і після скількох невдалих циклів підряд писати ERROR
+CAPTURE_ATTEMPTS = 2
+RETRY_PAUSE_SECONDS = 20
+ERROR_AFTER_FAILURES = 3
+# додатковий знімок одразу після півночі, щоб «на сьогодні» не лишалось із вчорашньою датою
+MIDNIGHT_CAPTURE = dt_time(0, 5)
+# з цього часу, поки графіка на завтра немає, знімаємо частіше (ДТЕК публікує його ввечері)
+EVENING_START = dt_time(17, 0)
+# у таблиці графіка: клітинка-підпис + 24 години
+TABLE_COLUMNS = 25
+UPDATE_RE = re.compile(r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}")
 
 _lock = asyncio.Lock()
+_failures = 0  # невдалих циклів знімка підряд
+
+# зчитуємо зі сторінки лише те, що потрібно для перевірки (дати вкладок, розміри таблиць)
+PAGE_DATA_JS = """() => {
+  const root = document.querySelector('#discon-fact');
+  const dates = [...root.querySelectorAll('.dates .date span[rel="date"]')]
+      .map(e => e.textContent.trim());
+  const tables = [...root.querySelectorAll('.discon-fact-table')].map(t => {
+    const rows = [...t.querySelectorAll('table tr')];
+    const update = t.querySelector('.update');
+    return {
+      head: rows[0] ? rows[0].children.length : 0,
+      body: rows[1] ? rows[1].children.length : 0,
+      update: update ? update.textContent.trim() : null,
+    };
+  });
+  return { dates, tables };
+}"""
 
 
 class ScheduleError(Exception):
     """Знімок зробити не вдалося (немає Playwright, сторінка не відкрилась, захист тощо)."""
+
+
+class ScheduleSetupError(ScheduleError):
+    """Проблема налаштування (не встановлено Playwright): повтор нічого не змінить."""
 
 
 def image_path(day: str) -> Path:
@@ -50,17 +88,93 @@ def read_meta() -> dict | None:
         return None
 
 
-def get_snapshot(day: str):
-    """(шлях до картинки, коли зроблено) або None, якщо знімка ще немає."""
+class Pick(NamedTuple):
+    path: Path
+    updated: datetime  # коли бот зробив знімок
+    site_updated: str | None  # дата оновлення, яку показує сам графік ДТЕК
+    stale: bool  # знімок давно не оновлювався
+
+
+# чому графіка немає: "missing" - знімка ще не було, "unpublished" - ДТЕК не опублікував
+# графік на завтра, "wrong_day" - збережені картинки не на ту дату, що потрібна зараз
+MISSING, UNPUBLISHED, WRONG_DAY = "missing", "unpublished", "wrong_day"
+
+
+def pick_snapshot(
+    day: str, now: datetime | None = None
+) -> tuple[Pick | None, str | None]:
+    """Картинка графіка саме на потрібну дату: (Pick, None) або (None, причина).
+
+    Дату беремо з вкладок самої сторінки ДТЕК, тож вчорашній графік ніколи не видається
+    за сьогоднішній. Після півночі «сьогодні» береться з картинки, що була «завтра».
+    """
+    now = now or datetime.now(KYIV)
     meta = read_meta()
-    path = image_path(day)
-    if not meta or not path.exists():
-        return None
+    if not meta:
+        return None, MISSING
     try:
         updated = datetime.fromisoformat(meta["updated"])
     except (KeyError, ValueError):
-        return None
-    return path, updated, meta.get("site_updated")
+        return None, MISSING
+
+    stale = now - updated > timedelta(minutes=STALE_AFTER_MINUTES)
+    dates = meta.get("dates") or {}
+    if not dates:
+        # знімок без записаних дат (стара версія): віримо назві файла
+        path = image_path(day)
+        if path.exists():
+            return Pick(path, updated, meta.get("site_updated"), stale), None
+        return None, MISSING
+
+    wanted = (now.date() + timedelta(days=0 if day == "today" else 1)).isoformat()
+    for source in ("today", "tomorrow"):
+        path = image_path(source)
+        if dates.get(source) == wanted and path.exists():
+            return Pick(path, updated, meta.get("site_updated"), stale), None
+
+    if day == "tomorrow" and dates.get("today") == now.date().isoformat():
+        return (
+            None,
+            UNPUBLISHED,
+        )  # сьогоднішній знімок свіжий, а завтрашнього графіка ще немає
+    return None, WRONG_DAY
+
+
+def _table_ok(table: dict) -> bool:
+    return table.get("head") == TABLE_COLUMNS and table.get("body") == TABLE_COLUMNS
+
+
+def _validate_page_data(data: dict, today: date) -> bool:
+    """Перевіряє, що графік справді завантажився й він на сьогоднішню дату.
+
+    Кидає ScheduleError, якщо ні (тоді попередній знімок лишається). Повертає, чи є вже
+    готовий графік на завтра: ДТЕК публікує його лише ввечері.
+    """
+    try:
+        dates = [datetime.strptime(text, "%d.%m.%y").date() for text in data["dates"]]
+    except (KeyError, ValueError) as error:
+        raise ScheduleError(
+            f"Не вдалося прочитати дати вкладок: {data.get('dates')}"
+        ) from error
+    tables = data.get("tables") or []
+    if not dates or not tables:
+        raise ScheduleError("На сторінці немає графіка відключень")
+    if dates[0] != today:
+        raise ScheduleError(f"Сайт показує графік на {dates[0]}, а сьогодні {today}")
+    first = tables[0]
+    if not _table_ok(first):
+        raise ScheduleError(
+            f"Таблиця графіка неповна: {first.get('head')}/{first.get('body')} "
+            f"клітинок замість {TABLE_COLUMNS}"
+        )
+    if not UPDATE_RE.fullmatch(first.get("update") or ""):
+        raise ScheduleError("У графіку немає дати останнього оновлення")
+    return (
+        len(dates) > 1
+        and len(tables) > 1
+        and dates[1] == today + timedelta(days=1)
+        and _table_ok(tables[1])
+    )
 
 
 def _write_atomically(path: Path, data: bytes):
@@ -153,7 +267,7 @@ async def _capture() -> dict:
         from playwright.async_api import TimeoutError as PlaywrightTimeout
         from playwright.async_api import async_playwright
     except ImportError as error:
-        raise ScheduleError(
+        raise ScheduleSetupError(
             "Не встановлено playwright: pip install playwright && playwright install chromium"
         ) from error
 
@@ -215,6 +329,11 @@ async def _capture() -> dict:
                     state="visible",
                     timeout=45000,
                 )
+                # таблиця з'явилась, але чи справді в ній дані на сьогодні?
+                today = datetime.now(KYIV).date()
+                has_tomorrow = _validate_page_data(
+                    await page.evaluate(PAGE_DATA_JS), today
+                )
             except Exception:
                 # знімок сторінки в момент помилки допомагає зрозуміти причину
                 try:
@@ -247,27 +366,42 @@ async def _capture() -> dict:
 
             images = {"today": await block.screenshot(type="png")}
 
-            tabs = page.locator("#discon-fact .dates .date")
-            if await tabs.count() > 1:
-                await tabs.nth(1).click()
-                await page.wait_for_selector(
-                    '#discon-fact .discon-fact-table[tab="1"].active table',
-                    state="visible",
-                    timeout=20000,
-                )
-                images["tomorrow"] = await block.screenshot(type="png")
+            # графік на завтра ДТЕК публікує лише ввечері: його відсутність не є помилкою
+            if has_tomorrow:
+                try:
+                    await page.locator("#discon-fact .dates .date").nth(1).click()
+                    await page.wait_for_selector(
+                        '#discon-fact .discon-fact-table[tab="1"].active table',
+                        state="visible",
+                        timeout=20000,
+                    )
+                    images["tomorrow"] = await block.screenshot(type="png")
+                except PlaywrightTimeout:
+                    logger.info(
+                        "Графік ДТЕК: вкладка «на завтра» не відкрилась, пропускаю"
+                    )
         finally:
             await browser.close()
 
-    if "tomorrow" not in images:
-        raise ScheduleError("На сторінці немає вкладки «на завтра»")
     for day, data in images.items():
         _write_atomically(image_path(day), data)
+    if "tomorrow" not in images:
+        # стара картинка «на завтра» тепер була б на іншу дату
+        image_path("tomorrow").unlink(missing_ok=True)
     meta = {
         "updated": datetime.now(KYIV).isoformat(),
         "site_updated": site_updated,
         "address": f"{city}, {street}, {house}",
         "group": (group or "").replace("GPV", ""),
+        # на які дати ці картинки (за вкладками самої сторінки)
+        "dates": {
+            "today": today.isoformat(),
+            "tomorrow": (
+                (today + timedelta(days=1)).isoformat()
+                if "tomorrow" in images
+                else None
+            ),
+        },
     }
     _write_atomically(META_FILE, json.dumps(meta, ensure_ascii=False).encode("utf-8"))
     return meta
@@ -297,40 +431,101 @@ def _capture_in_own_loop() -> dict:
 
 
 async def refresh_schedule() -> bool:
-    """Робить новий знімок. Невдача лише логується, а попередні картинки лишаються."""
+    """Робить новий знімок. Невдача лише логується, а попередні картинки лишаються.
+
+    У межах одного циклу робиться кілька спроб (сайт міг тимчасово не відкритись). Після
+    кількох невдалих циклів підряд у лог іде ERROR, а користувачі бачать попередження, що
+    знімок застарів.
+    """
+    global _failures
     async with _lock:
         started = time.monotonic()
-        try:
-            meta = await asyncio.to_thread(_capture_in_own_loop)
-        except asyncio.CancelledError:
-            raise
-        except ScheduleError as error:
-            logger.warning("Графік ДТЕК: знімок не зроблено: %s", error)
-            return False
-        except TimeoutError:
-            logger.warning(
-                "Графік ДТЕК: знімок не вкладається в %s с, пропускаю",
-                CAPTURE_TIMEOUT_SECONDS,
+        meta = None
+        for attempt in range(1, CAPTURE_ATTEMPTS + 1):
+            try:
+                meta = await asyncio.to_thread(_capture_in_own_loop)
+                break
+            except asyncio.CancelledError:
+                raise
+            except ScheduleSetupError as error:
+                logger.error("Графік ДТЕК: %s", error)
+                return False  # повтор нічого не змінить
+            except ScheduleError as error:
+                logger.warning(
+                    "Графік ДТЕК: знімок не зроблено (спроба %s з %s): %s",
+                    attempt,
+                    CAPTURE_ATTEMPTS,
+                    error,
+                )
+            except TimeoutError:
+                logger.warning(
+                    "Графік ДТЕК: знімок не вкладається в %s с (спроба %s з %s)",
+                    CAPTURE_TIMEOUT_SECONDS,
+                    attempt,
+                    CAPTURE_ATTEMPTS,
+                )
+            except Exception:
+                logger.warning(
+                    "Графік ДТЕК: збій під час знімка (спроба %s з %s)",
+                    attempt,
+                    CAPTURE_ATTEMPTS,
+                    exc_info=True,
+                )
+            if attempt < CAPTURE_ATTEMPTS:
+                await asyncio.sleep(RETRY_PAUSE_SECONDS)
+
+        if meta is None:
+            _failures += 1
+            logger.log(
+                logging.ERROR if _failures >= ERROR_AFTER_FAILURES else logging.WARNING,
+                "Графік ДТЕК: не вдалося оновити знімок (циклів підряд: %s). "
+                "Користувачі бачать попередній знімок із позначкою, що він застарів",
+                _failures,
             )
             return False
-        except Exception:
-            logger.warning("Графік ДТЕК: збій під час знімка", exc_info=True)
-            return False
+
+        _failures = 0
         logger.info(
-            "Графік ДТЕК: знімок оновлено за %.0f с (на сайті: %s)",
+            "Графік ДТЕК: знімок оновлено за %.0f с (на сайті: %s, є «на завтра»: %s)",
             time.monotonic() - started,
             meta.get("site_updated"),
+            bool(meta.get("dates", {}).get("tomorrow")),
         )
         return True
 
 
+def seconds_until_midnight_capture(now: datetime | None = None) -> float:
+    """Скільки секунд до найближчих 00:05 за Києвом."""
+    now = now or datetime.now(KYIV)
+    target = datetime.combine(now.date(), MIDNIGHT_CAPTURE, tzinfo=KYIV)
+    if target <= now:
+        target += timedelta(days=1)
+    return (target - now).total_seconds()
+
+
+def next_interval_minutes(ok: bool, now: datetime | None = None) -> int:
+    """Через скільки хвилин робити наступний знімок.
+
+    Після невдачі пробуємо швидше. Ввечері, поки ДТЕК не опублікував графік на завтра,
+    знімаємо частіше (SCHEDULE_EVENING_MINUTES), щоб він з'явився в боті майже одразу;
+    коли «завтра» вже є, знову працює звичайний інтервал.
+    """
+    interval = schedule_refresh_minutes()
+    if not ok:
+        return min(interval, RETRY_AFTER_FAILURE_MINUTES)
+    now = now or datetime.now(KYIV)
+    if now.time() >= EVENING_START and pick_snapshot("tomorrow", now)[0] is None:
+        return min(interval, schedule_evening_minutes())
+    return interval
+
+
 def seconds_until_next_refresh() -> float:
     """Скільки чекати до наступного знімка (з урахуванням свіжості картинок на диску)."""
-    interval = schedule_refresh_minutes() * 60
-    snapshot = get_snapshot("today")
-    if snapshot is None:
-        return 0
-    age = (datetime.now(KYIV) - snapshot[1]).total_seconds()
+    interval = next_interval_minutes(True) * 60
+    pick, _ = pick_snapshot("today")
+    if pick is None:
+        return 0  # знімка немає або він не на сьогоднішню дату
+    age = (datetime.now(KYIV) - pick.updated).total_seconds()
     return max(0.0, interval - age)
 
 
@@ -343,7 +538,9 @@ async def schedule_loop():
         schedule_house(),
     )
     # після перезапуску бота не знімаємо наново, якщо картинки на диску ще свіжі
-    await asyncio.sleep(seconds_until_next_refresh())
+    await asyncio.sleep(
+        min(seconds_until_next_refresh(), seconds_until_midnight_capture())
+    )
     while True:
         try:
             ok = await refresh_schedule()
@@ -352,9 +549,6 @@ async def schedule_loop():
         except Exception:
             logger.exception("Графік ДТЕК: збій циклу")
             ok = False
-        minutes = (
-            schedule_refresh_minutes()
-            if ok
-            else min(schedule_refresh_minutes(), RETRY_AFTER_FAILURE_MINUTES)
-        )
-        await asyncio.sleep(minutes * 60)
+        minutes = next_interval_minutes(ok)
+        # додатковий знімок одразу після півночі: нова дата й, можливо, нова вкладка
+        await asyncio.sleep(min(minutes * 60, seconds_until_midnight_capture()))

@@ -7,7 +7,7 @@
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import LinkPreviewOptions, ReplyKeyboardRemove
-from handlers.logic import get_panel, set_panel
+from handlers.logic import get_panel, pop_schedule_photo, set_panel
 
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
 
@@ -21,7 +21,7 @@ async def delete_quietly(bot: Bot, chat_id: int, message_id: int):
 
 
 async def send_panel(bot: Bot, user_id: int, text: str, markup, parse_mode=None):
-    """Нова панель унизу чату; попередню панель видаляємо."""
+    """Нова панель унизу чату; попередню панель і фото графіка видаляємо."""
     old = await get_panel(user_id)
     sent = await bot.send_message(
         chat_id=user_id,
@@ -33,6 +33,11 @@ async def send_panel(bot: Bot, user_id: int, text: str, markup, parse_mode=None)
     await set_panel(user_id, sent.message_id)
     if old and old != sent.message_id:
         await delete_quietly(bot, user_id, old)
+    # фото графіка лишилося б вище за нову панель і застаріло б: у чаті має бути
+    # лише актуальна панель (графік можна відкрити знову кнопкою)
+    photo = await pop_schedule_photo(user_id)
+    if photo:
+        await delete_quietly(bot, user_id, photo)
 
 
 async def edit_panel(

@@ -4,8 +4,10 @@ from datetime import datetime
 from aiogram import F, Router, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import FSInputFile, InputMediaPhoto
-from dtek_schedule import get_snapshot
-from handlers.logic import get_notifications, get_tuya_state, set_notifications
+from dtek_schedule import MISSING, UNPUBLISHED, WRONG_DAY, pick_snapshot
+from handlers.logic import (get_notifications, get_tuya_state,
+                            pop_schedule_photo, set_notifications,
+                            set_schedule_photo)
 from handlers.menus import (SCH_CLOSE, SCH_SHOW, SCH_TODAY, SCH_TOMORROW,
                             STD_NOTIFY_OFF, STD_NOTIFY_ON, schedule_keyboard,
                             standard_keyboard)
@@ -86,31 +88,37 @@ async def toggle_notifications(callback: types.CallbackQuery):
 # ---- графік відключень ДТЕК (картинка, яку раз на N хвилин знімає dtek_schedule)
 
 DAY_LABELS = {"today": "на сьогодні", "tomorrow": "на завтра"}
-SCHEDULE_NOT_READY = "Графік ще завантажується, спробуйте за хвилину"
-# фото графіка кожного користувача (щоб нове замінювало старе, а не накопичувалось)
-_schedule_photos: dict[int, int] = {}
-# file_id вже завантаженої в Telegram картинки: (день, час зміни файлу) -> file_id
+# що сказати користувачеві, коли показати графік неможливо (за причиною з pick_snapshot)
+SCHEDULE_UNAVAILABLE = {
+    MISSING: "Графік ще завантажується, спробуйте за хвилину",
+    UNPUBLISHED: "ДТЕК ще не опублікував графік на завтра. Зазвичай він з'являється ввечері",
+    WRONG_DAY: "Графік тимчасово недоступний. Перевірте його на сайті ДТЕК",
+}
+# file_id вже завантаженої в Telegram картинки: (файл, час зміни файлу) -> file_id
 _file_ids: dict[tuple[str, int], str] = {}
 
 
-def schedule_caption(day: str, updated: datetime, site_updated: str | None) -> str:
+def schedule_caption(day: str, pick) -> str:
     lines = [f"📅 Графік відключень {DAY_LABELS[day]}"]
-    if site_updated:
-        lines.append(f"Оновлено ДТЕК: {site_updated}")
-    else:
-        lines.append(f"Знімок о {updated.strftime('%H:%M')}")
+    if pick.site_updated:
+        lines.append(f"Оновлено ДТЕК: {pick.site_updated}")
+    if pick.stale:
+        # новіший знімок зробити не вдалося: чесно кажемо, наскільки він старий
+        lines.append(
+            f"⚠️ Знімок зроблено о {pick.updated.strftime('%d.%m %H:%M')}, "
+            "актуальність уточніть на сайті ДТЕК"
+        )
     return "\n".join(lines)
 
 
 def schedule_media(day: str):
-    """(файл або file_id, ключ кешу, підпис) для картинки дня; None, якщо знімка ще немає."""
-    snapshot = get_snapshot(day)
-    if snapshot is None:
-        return None
-    path, updated, site_updated = snapshot
-    key = (day, path.stat().st_mtime_ns)
-    media = _file_ids.get(key) or FSInputFile(path)
-    return media, key, schedule_caption(day, updated, site_updated)
+    """(файл або file_id, ключ кешу, підпис, None) або (None, None, None, причина)."""
+    pick, reason = pick_snapshot(day)
+    if pick is None:
+        return None, None, None, reason
+    key = (pick.path.name, pick.path.stat().st_mtime_ns)
+    media = _file_ids.get(key) or FSInputFile(pick.path)
+    return media, key, schedule_caption(day, pick), None
 
 
 def remember_file_id(key: tuple[str, int], message: types.Message | bool):
@@ -120,39 +128,38 @@ def remember_file_id(key: tuple[str, int], message: types.Message | bool):
 
 @router.callback_query(F.data == SCH_SHOW)
 async def show_schedule(callback: types.CallbackQuery):
-    prepared = schedule_media("today")
-    if prepared is None:
-        await callback.answer(SCHEDULE_NOT_READY, show_alert=True)
+    media, key, caption, reason = schedule_media("today")
+    if media is None:
+        await callback.answer(SCHEDULE_UNAVAILABLE[reason], show_alert=True)
         return
     await callback.answer()
 
     user_id = callback.from_user.id
-    old = _schedule_photos.pop(user_id, None)
+    # у користувача лише одне фото графіка: нове замінює старе
+    old = await pop_schedule_photo(user_id)
     if old:
         await delete_quietly(callback.bot, user_id, old)
-    media, key, caption = prepared
     sent = await callback.bot.send_photo(
         chat_id=user_id,
         photo=media,
         caption=caption,
         reply_markup=schedule_keyboard("today"),
     )
-    _schedule_photos[user_id] = sent.message_id
+    await set_schedule_photo(user_id, sent.message_id)
     remember_file_id(key, sent)
 
 
 @router.callback_query(F.data.in_({SCH_TODAY, SCH_TOMORROW}))
 async def switch_schedule_day(callback: types.CallbackQuery):
     day = "today" if callback.data == SCH_TODAY else "tomorrow"
-    prepared = schedule_media(day)
-    if prepared is None:
-        await callback.answer(SCHEDULE_NOT_READY, show_alert=True)
+    media, key, caption, reason = schedule_media(day)
+    if media is None:
+        await callback.answer(SCHEDULE_UNAVAILABLE[reason], show_alert=True)
         return
     await callback.answer()
     if callback.message is None:
         return
 
-    media, key, caption = prepared
     try:
         edited = await callback.message.edit_media(
             InputMediaPhoto(media=media, caption=caption),
@@ -174,5 +181,6 @@ async def close_schedule(callback: types.CallbackQuery):
     await delete_quietly(
         callback.bot, callback.from_user.id, callback.message.message_id
     )
-    if _schedule_photos.get(callback.from_user.id) == callback.message.message_id:
-        _schedule_photos.pop(callback.from_user.id, None)
+    await pop_schedule_photo(
+        callback.from_user.id, only_message_id=callback.message.message_id
+    )
