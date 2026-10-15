@@ -6,23 +6,11 @@ from aiogram import Bot, F, Router, types
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from handlers.comands import extended_main_screen, start_ip_check, with_notice
-from handlers.logic import (
-    MODE_EXTENDED,
-    MODE_STANDARD,
-    add_gosti,
-    get_user_mode,
-    set_user_mode,
-)
-from handlers.menus import (
-    CB_MODE_CHOOSE,
-    CB_MODE_EXTENDED,
-    CB_MODE_STANDARD,
-    MENU_MAIN,
-    VERSION_TEXT,
-    back_keyboard,
-    mode_choice_keyboard,
-    mode_choice_text,
-)
+from handlers.logic import (MODE_EXTENDED, MODE_STANDARD, add_gosti,
+                            get_user_mode, set_user_mode)
+from handlers.menus import (CB_MODE_CHOOSE, CB_MODE_EXTENDED, CB_MODE_STANDARD,
+                            MENU_MAIN, VERSION_TEXT, back_keyboard,
+                            mode_choice_keyboard, mode_choice_text)
 from handlers.standard import standard_screen
 from settings import extended_mode_enabled
 from ui import delete_quietly, edit_panel, remove_reply_keyboard, send_panel

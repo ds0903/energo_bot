@@ -358,6 +358,14 @@ async def set_notifications(user_id, enabled):
         await conn.commit()
 
 
+async def list_mode_user_ids():
+    """Усі, хто користується ботом (мають режим): їм адмін може розіслати нову панель."""
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT user_id FROM user_modes ORDER BY user_id")
+            return [row[0] for row in await cursor.fetchall()]
+
+
 async def list_notify_user_ids():
     """Користувачі стандартного режиму з увімкненими сповіщеннями про світло."""
     async with aiosqlite.connect(datab2) as conn:

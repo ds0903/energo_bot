@@ -2,14 +2,13 @@ import asyncio
 import logging
 import os
 
-from aiogram import Bot, Dispatcher, types
-from aiogram.exceptions import TelegramAPIError
-from aiogram.filters.command import Command
+from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv
+from dtek_schedule import schedule_loop
 from handlers import admin, comands, common, standard
-from handlers.logic import init_db, list_admin_info
+from handlers.logic import init_db
 from monitor import tuya_monitor
-from settings import extended_mode_enabled
+from settings import extended_mode_enabled, schedule_enabled
 from tuya import get_client
 
 load_dotenv()  # токени та ключі беруться з файлу .env у корені проєкту
@@ -30,24 +29,6 @@ dp.include_router(admin.router)
 dp.include_router(common.fallback_router)
 
 
-@dp.message(Command("remind"))
-async def remind(message: types.Message):
-    if not admin.is_admin(message):
-        await message.answer("Доступ заборонено")
-        return
-
-    for row in await list_admin_info(status="3"):
-        user_id = row[1]
-        try:
-            await bot.send_message(
-                chat_id=user_id,
-                text="Вийшла нова версія бота!\nДля перегляду змін введіть команду /version.\nБудь ласка, перезавантажте функції бота, ввівши команду /restart.\n",
-            )
-        except TelegramAPIError:
-            # наприклад, користувач заблокував бота - не зупиняємо розсилку
-            logger.exception("Не вдалося надіслати нагадування користувачу %s", user_id)
-
-
 async def main():
     await init_db()
     await bot.delete_webhook()
@@ -62,11 +43,18 @@ async def main():
     else:
         monitor_task = asyncio.create_task(tuya_monitor(bot, client))
 
+    # знімок графіка відключень ДТЕК раз на SCHEDULE_REFRESH_MINUTES (потрібен playwright)
+    schedule_task = None
+    if schedule_enabled():
+        schedule_task = asyncio.create_task(schedule_loop())
+
     try:
         await dp.start_polling(bot)
     finally:
-        if monitor_task is not None:
-            monitor_task.cancel()
+        for task in (monitor_task, schedule_task):
+            if task is not None:
+                task.cancel()
+        if client is not None:
             await client.close()
 
 

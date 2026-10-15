@@ -5,6 +5,7 @@ openpyxl
 tzdata
 paho-mqtt
 cryptography
+playwright
 black
 isort
 ruff

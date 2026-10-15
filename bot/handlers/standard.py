@@ -2,12 +2,17 @@ import logging
 from datetime import datetime
 
 from aiogram import F, Router, types
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import FSInputFile, InputMediaPhoto
+from dtek_schedule import get_snapshot
 from handlers.logic import get_notifications, get_tuya_state, set_notifications
-from handlers.menus import STD_NOTIFY_OFF, STD_NOTIFY_ON, standard_keyboard
+from handlers.menus import (SCH_CLOSE, SCH_SHOW, SCH_TODAY, SCH_TOMORROW,
+                            STD_NOTIFY_OFF, STD_NOTIFY_ON, schedule_keyboard,
+                            standard_keyboard)
 from monitor import device_suffix, fetch_watched, poll_seconds
 from settings import tuya_location
 from tuya import get_client
-from ui import edit_panel
+from ui import delete_quietly, edit_panel
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -76,3 +81,98 @@ async def toggle_notifications(callback: types.CallbackQuery):
         "🔔 Сповіщення увімкнено" if enabled else "🔕 Сповіщення вимкнено"
     )
     await show_standard(callback)
+
+
+# ---- графік відключень ДТЕК (картинка, яку раз на N хвилин знімає dtek_schedule)
+
+DAY_LABELS = {"today": "на сьогодні", "tomorrow": "на завтра"}
+SCHEDULE_NOT_READY = "Графік ще завантажується, спробуйте за хвилину"
+# фото графіка кожного користувача (щоб нове замінювало старе, а не накопичувалось)
+_schedule_photos: dict[int, int] = {}
+# file_id вже завантаженої в Telegram картинки: (день, час зміни файлу) -> file_id
+_file_ids: dict[tuple[str, int], str] = {}
+
+
+def schedule_caption(day: str, updated: datetime, site_updated: str | None) -> str:
+    lines = [f"📅 Графік відключень {DAY_LABELS[day]}"]
+    if site_updated:
+        lines.append(f"Оновлено ДТЕК: {site_updated}")
+    else:
+        lines.append(f"Знімок о {updated.strftime('%H:%M')}")
+    return "\n".join(lines)
+
+
+def schedule_media(day: str):
+    """(файл або file_id, ключ кешу, підпис) для картинки дня; None, якщо знімка ще немає."""
+    snapshot = get_snapshot(day)
+    if snapshot is None:
+        return None
+    path, updated, site_updated = snapshot
+    key = (day, path.stat().st_mtime_ns)
+    media = _file_ids.get(key) or FSInputFile(path)
+    return media, key, schedule_caption(day, updated, site_updated)
+
+
+def remember_file_id(key: tuple[str, int], message: types.Message | bool):
+    if isinstance(message, types.Message) and message.photo:
+        _file_ids[key] = message.photo[-1].file_id
+
+
+@router.callback_query(F.data == SCH_SHOW)
+async def show_schedule(callback: types.CallbackQuery):
+    prepared = schedule_media("today")
+    if prepared is None:
+        await callback.answer(SCHEDULE_NOT_READY, show_alert=True)
+        return
+    await callback.answer()
+
+    user_id = callback.from_user.id
+    old = _schedule_photos.pop(user_id, None)
+    if old:
+        await delete_quietly(callback.bot, user_id, old)
+    media, key, caption = prepared
+    sent = await callback.bot.send_photo(
+        chat_id=user_id,
+        photo=media,
+        caption=caption,
+        reply_markup=schedule_keyboard("today"),
+    )
+    _schedule_photos[user_id] = sent.message_id
+    remember_file_id(key, sent)
+
+
+@router.callback_query(F.data.in_({SCH_TODAY, SCH_TOMORROW}))
+async def switch_schedule_day(callback: types.CallbackQuery):
+    day = "today" if callback.data == SCH_TODAY else "tomorrow"
+    prepared = schedule_media(day)
+    if prepared is None:
+        await callback.answer(SCHEDULE_NOT_READY, show_alert=True)
+        return
+    await callback.answer()
+    if callback.message is None:
+        return
+
+    media, key, caption = prepared
+    try:
+        edited = await callback.message.edit_media(
+            InputMediaPhoto(media=media, caption=caption),
+            reply_markup=schedule_keyboard(day),
+        )
+    except TelegramBadRequest as error:
+        # натиснули вже відкритий день: Telegram відповідає "message is not modified"
+        if "not modified" not in str(error).lower():
+            logger.warning("Не вдалося змінити графік: %s", error)
+        return
+    remember_file_id(key, edited)
+
+
+@router.callback_query(F.data == SCH_CLOSE)
+async def close_schedule(callback: types.CallbackQuery):
+    await callback.answer()
+    if callback.message is None:
+        return
+    await delete_quietly(
+        callback.bot, callback.from_user.id, callback.message.message_id
+    )
+    if _schedule_photos.get(callback.from_user.id) == callback.message.message_id:
+        _schedule_photos.pop(callback.from_user.id, None)

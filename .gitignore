@@ -3,4 +3,7 @@ venv
 .env
 .idea/
 __pycache__/
+schedule_cache/
+.playwright-mcp/
+dtek_*.png
 *.xlsx

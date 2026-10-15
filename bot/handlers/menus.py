@@ -1,13 +1,18 @@
 """Тексти та інлайн-клавіатури бота."""
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from settings import extended_mode_enabled, ip_check_minutes, tuya_location
+from settings import (extended_mode_enabled, ip_check_minutes,
+                      schedule_enabled, tuya_location)
 
 # callback_data кнопок
 MENU_MAIN = "menu:main"
 CB_MODE_CHOOSE = "mode:choose"
 CB_MODE_STANDARD = "mode:standard"
 CB_MODE_EXTENDED = "mode:extended"
+SCH_SHOW = "sch:show"
+SCH_TODAY = "sch:day:today"
+SCH_TOMORROW = "sch:day:tomorrow"
+SCH_CLOSE = "sch:close"
 STD_NOTIFY_ON = "std:notify:on"
 STD_NOTIFY_OFF = "std:notify:off"
 EXT_MENU = "ext:menu"
@@ -71,11 +76,21 @@ def standard_keyboard(notifications_on: bool):
         notify = ("🔕 Вимкнути сповіщення", STD_NOTIFY_OFF)
     else:
         notify = ("🔔 Увімкнути сповіщення", STD_NOTIFY_ON)
-    rows = [[notify]]
+    rows = []
+    if schedule_enabled():
+        rows.append([("📅 Графік відключень", SCH_SHOW)])
+    rows.append([notify])
     if extended_mode_enabled():
         # поки розширений режим вимкнено, змінювати режим немає на що
         rows.append([("⚙️ Змінити режим", CB_MODE_CHOOSE)])
     return _keyboard(rows)
+
+
+def schedule_keyboard(day: str):
+    """Кнопки під фото графіка: перемикач «сьогодні / завтра» і «закрити»."""
+    today = ("🟡 Сьогодні" if day == "today" else "⚪ Сьогодні", SCH_TODAY)
+    tomorrow = ("🟡 Завтра" if day == "tomorrow" else "⚪ Завтра", SCH_TOMORROW)
+    return _keyboard([[today, tomorrow], [("✖️ Закрити", SCH_CLOSE)]])
 
 
 def extended_keyboard():

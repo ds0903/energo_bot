@@ -7,31 +7,14 @@ from aiogram import Bot, F, Router, types
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from handlers.logic import (
-    delete_active_user_ip,
-    delete_data,
-    insert_active_user_ip,
-    insert_data,
-    list_user_active_ip,
-    list_user_ip,
-    list_user_ip_by_id,
-    update_user_status,
-)
-from handlers.menus import (
-    EXT_ADD,
-    EXT_DELETE,
-    EXT_HELP,
-    EXT_IPS,
-    EXT_MENU,
-    EXT_OFF,
-    EXT_ON,
-    HELP_TEXT,
-    back_keyboard,
-    cancel_keyboard,
-    extended_keyboard,
-    ips_keyboard,
-    pick_keyboard,
-)
+from handlers.logic import (delete_active_user_ip, delete_data,
+                            insert_active_user_ip, insert_data,
+                            list_user_active_ip, list_user_ip,
+                            list_user_ip_by_id, update_user_status)
+from handlers.menus import (EXT_ADD, EXT_DELETE, EXT_HELP, EXT_IPS, EXT_MENU,
+                            EXT_OFF, EXT_ON, HELP_TEXT, back_keyboard,
+                            cancel_keyboard, extended_keyboard, ips_keyboard,
+                            pick_keyboard)
 from settings import ip_check_minutes
 from ui import delete_quietly, edit_panel, send_panel
 
