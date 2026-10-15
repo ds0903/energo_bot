@@ -7,3 +7,4 @@ schedule_cache/
 .playwright-mcp/
 dtek_*.png
 *.xlsx
+energo_bot.db
