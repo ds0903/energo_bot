@@ -4,7 +4,7 @@ from datetime import datetime
 from aiogram import F, Router, types
 from handlers.logic import get_notifications, get_tuya_state, set_notifications
 from handlers.menus import STD_NOTIFY_OFF, STD_NOTIFY_ON, standard_keyboard
-from monitor import device_suffix, fetch_watched, last_check_time, poll_seconds
+from monitor import device_suffix, fetch_watched, poll_seconds
 from settings import tuya_location
 from tuya import get_client
 from ui import edit_panel
@@ -50,15 +50,10 @@ async def status_text() -> str:
 
 async def standard_screen(user_id: int, notice: str = ""):
     """(текст, кнопки) головного екрана стандартного режиму."""
+    # стан сповіщень видно за кнопкою (вона перемикається), тож окремого рядка немає
     notifications_on = await get_notifications(user_id)
-    # статус спершу: він може оновити кеш, з якого береться час перевірки
-    status = await status_text()
-    footer = "🔔 Сповіщення увімкнено" if notifications_on else "🔕 Сповіщення вимкнено"
-    checked = last_check_time()
-    if checked is not None:
-        footer += f"\nПеревірено о {checked.strftime('%H:%M')}"
     parts = [notice] if notice else []
-    parts += [status, footer]
+    parts.append(await status_text())
     return "\n\n".join(parts), standard_keyboard(notifications_on)
 
 
