@@ -302,7 +302,8 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS tuya_state (
                 device_id TEXT PRIMARY KEY,
                 online INTEGER NOT NULL,
-                since TEXT NOT NULL
+                since TEXT NOT NULL,
+                prev_seconds INTEGER
             );
             CREATE TABLE IF NOT EXISTS panels (
                 user_id INTEGER PRIMARY KEY,
@@ -327,6 +328,11 @@ async def init_db():
             await conn.execute(
                 "ALTER TABLE user_modes ADD COLUMN notify INTEGER NOT NULL DEFAULT 1"
             )
+        # у попередній версії tuya_state не пам'ятала, скільки тривав минулий стан
+        async with conn.execute("PRAGMA table_info(tuya_state)") as cursor:
+            columns = {row[1] for row in await cursor.fetchall()}
+        if "prev_seconds" not in columns:
+            await conn.execute("ALTER TABLE tuya_state ADD COLUMN prev_seconds INTEGER")
         # попередня версія зберігала лише фото графіка в таблиці schedule_photos:
         # переносимо ці записи, щоб такі фото теж замінювались, а не лишались в чатах
         async with conn.execute(
@@ -493,10 +499,21 @@ async def get_tuya_state(device_id):
             return (bool(row[0]), row[1]) if row else None
 
 
-async def set_tuya_state(device_id, online, since):
+async def get_tuya_previous(device_id):
+    """Скільки секунд тривав попередній стан (до останньої зміни) або None, якщо невідомо."""
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.execute(
+            "SELECT prev_seconds FROM tuya_state WHERE device_id = ?", (device_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+
+async def set_tuya_state(device_id, online, since, prev_seconds=None):
     async with aiosqlite.connect(datab2) as conn:
         await conn.execute(
-            "INSERT OR REPLACE INTO tuya_state (device_id, online, since) VALUES (?, ?, ?)",
-            (device_id, int(online), since),
+            "INSERT OR REPLACE INTO tuya_state (device_id, online, since, prev_seconds) "
+            "VALUES (?, ?, ?, ?)",
+            (device_id, int(online), since, prev_seconds),
         )
         await conn.commit()

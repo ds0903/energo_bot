@@ -5,14 +5,14 @@ from aiogram import F, Router, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import FSInputFile, InputMediaPhoto
 from dtek_schedule import MISSING, UNPUBLISHED, WRONG_DAY, pick_snapshot
-from handlers.logic import (get_notifications, get_panel, get_tuya_state,
-                            pop_secondary_message, set_notifications,
-                            set_secondary_message)
+from handlers.logic import (get_notifications, get_panel, get_tuya_previous,
+                            get_tuya_state, pop_secondary_message,
+                            set_notifications, set_secondary_message)
 from handlers.menus import (SCH_CLOSE, SCH_SHOW, SCH_TODAY, SCH_TOMORROW,
                             STD_NOTIFY_OFF, STD_NOTIFY_ON, schedule_keyboard,
                             standard_keyboard)
-from monitor import (device_suffix, fetch_watched, format_duration, now_kyiv,
-                     poll_seconds)
+from monitor import (device_suffix, fetch_watched, format_duration,
+                     poll_seconds, previous_state_text)
 from settings import tuya_location
 from tuya import get_client
 from ui import delete_quietly, edit_panel
@@ -50,9 +50,11 @@ async def status_text() -> str:
         lines.append(f"📍 {tuya_location()}{device_suffix(device, len(devices) > 1)}")
         state = await get_tuya_state(device["id"])
         if state is not None and state[0] == device["online"]:
-            elapsed = max(timedelta(0), now_kyiv() - datetime.fromisoformat(state[1]))
-            duration = format_duration(elapsed)
-            lines.append(f"{'⚡' if device['online'] else '🌙'} {duration}")
+            # скільки тривав минулий стан: так само, як у сповіщенні про зміну світла
+            previous = await get_tuya_previous(device["id"])
+            if previous is not None:
+                duration = format_duration(timedelta(seconds=previous))
+                lines.append(previous_state_text(device["online"], duration))
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 

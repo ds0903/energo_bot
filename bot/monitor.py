@@ -97,16 +97,25 @@ def device_suffix(device: dict, several: bool) -> str:
     return f"\nПристрій: {device['name']}" if several and device["name"] else ""
 
 
+def previous_state_text(online: bool, duration: str) -> str:
+    """Рядок про минулий стан: скільки не було світла (воно щойно з'явилось) або скільки було.
+
+    Той самий рядок стоїть у сповіщенні про зміну і в панелі статусу.
+    """
+    if online:
+        return f"⚡ Не було {duration}"
+    return f"🌙 Світло було {duration}"
+
+
 def notification_text(
     online: bool, now: datetime, duration: str, device: dict, several: bool = False
 ) -> str:
     """Текст сповіщення про зміну стану світла (так само його показує адмінка в «Тест-повідомлення»)."""
     if online:
         head = f"🟢 Світло з'явилось о {format_time(now)}"
-        tail = f"⚡ Не було {duration}"
     else:
         head = f"🔴 Світло зникло о {format_time(now)}"
-        tail = f"Світло було {duration}"
+    tail = previous_state_text(online, duration)
     return f"{head}\n📍 {tuya_location()}{device_suffix(device, several)}\n{tail}"
 
 
@@ -123,8 +132,12 @@ async def _register_reading(device_id: str, online: bool, now: datetime):
         if online == previous_online:
             return None
 
-        await set_tuya_state(device_id, online, now.isoformat())
-        return now - datetime.fromisoformat(since)
+        elapsed = max(timedelta(0), now - datetime.fromisoformat(since))
+        # скільки тривав минулий стан запам'ятовуємо: його показує і панель статусу
+        await set_tuya_state(
+            device_id, online, now.isoformat(), int(elapsed.total_seconds())
+        )
+        return elapsed
 
 
 async def process_reading(bot, device: dict, now: datetime, several: bool = False):
