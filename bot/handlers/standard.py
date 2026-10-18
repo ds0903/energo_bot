@@ -11,7 +11,7 @@ from handlers.logic import (get_notifications, get_panel, get_tuya_previous,
 from handlers.menus import (SCH_CLOSE, SCH_SHOW, SCH_TODAY, SCH_TOMORROW,
                             STD_NOTIFY_OFF, STD_NOTIFY_ON, schedule_keyboard,
                             standard_keyboard)
-from monitor import (device_suffix, fetch_watched, format_duration,
+from monitor import (device_suffix, fetch_watched, format_duration, now_kyiv,
                      poll_seconds, previous_state_text)
 from settings import tuya_location
 from tuya import get_client
@@ -55,6 +55,12 @@ async def status_text() -> str:
             if previous is not None:
                 duration = format_duration(timedelta(seconds=previous))
                 lines.append(previous_state_text(device["online"], duration))
+            else:
+                # до першої зміни після оновлення бот ще не знає тривалості минулого стану:
+                # щоб панель не була порожньою, показуємо, скільки триває теперішній
+                elapsed = max(timedelta(0), now_kyiv() - datetime.fromisoformat(state[1]))
+                emoji = "⚡" if device["online"] else "🌙"
+                lines.append(f"{emoji} Вже {format_duration(elapsed)}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -106,12 +112,6 @@ def schedule_caption(day: str, pick) -> str:
     lines = [f"📅 Графік відключень {DAY_LABELS[day]}"]
     if pick.site_updated:
         lines.append(f"Оновлено ДТЕК: {pick.site_updated}")
-    if pick.stale:
-        # новіший знімок зробити не вдалося: чесно кажемо, наскільки він старий
-        lines.append(
-            f"⚠️ Знімок зроблено о {pick.updated.strftime('%d.%m %H:%M')}, "
-            "актуальність уточніть на сайті ДТЕК"
-        )
     return "\n".join(lines)
 
 

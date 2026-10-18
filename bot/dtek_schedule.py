@@ -35,8 +35,6 @@ BLOCK = ".discon-schedule-interact"
 CAPTURE_TIMEOUT_SECONDS = 180
 # після невдалої спроби пробуємо знову раніше, ніж за повний інтервал
 RETRY_AFTER_FAILURE_MINUTES = 10
-# знімок застарів, якщо новішого не вдавалось зробити так довго (користувач бачить попередження)
-STALE_AFTER_MINUTES = 180
 # спроб за один цикл (з паузою між ними) і після скількох невдалих циклів підряд писати ERROR
 CAPTURE_ATTEMPTS = 2
 RETRY_PAUSE_SECONDS = 20
@@ -94,7 +92,6 @@ class Pick(NamedTuple):
     path: Path
     updated: datetime  # коли бот зробив знімок
     site_updated: str | None  # дата оновлення, яку показує сам графік ДТЕК
-    stale: bool  # знімок давно не оновлювався
 
 
 # чому графіка немає: "missing" - знімка ще не було, "unpublished" - ДТЕК не опублікував
@@ -119,20 +116,19 @@ def pick_snapshot(
     except (KeyError, ValueError):
         return None, MISSING
 
-    stale = now - updated > timedelta(minutes=STALE_AFTER_MINUTES)
     dates = meta.get("dates") or {}
     if not dates:
         # знімок без записаних дат (стара версія): віримо назві файла
         path = image_path(day)
         if path.exists():
-            return Pick(path, updated, meta.get("site_updated"), stale), None
+            return Pick(path, updated, meta.get("site_updated")), None
         return None, MISSING
 
     wanted = (now.date() + timedelta(days=0 if day == "today" else 1)).isoformat()
     for source in ("today", "tomorrow"):
         path = image_path(source)
         if dates.get(source) == wanted and path.exists():
-            return Pick(path, updated, meta.get("site_updated"), stale), None
+            return Pick(path, updated, meta.get("site_updated")), None
 
     if day == "tomorrow" and dates.get("today") == now.date().isoformat():
         return (
@@ -454,8 +450,8 @@ async def refresh_schedule() -> bool:
     """Робить новий знімок. Невдача лише логується, а попередні картинки лишаються.
 
     У межах одного циклу робиться кілька спроб (сайт міг тимчасово не відкритись). Після
-    кількох невдалих циклів підряд у лог іде ERROR, а користувачі бачать попередження, що
-    знімок застарів.
+    кількох невдалих циклів підряд у лог іде ERROR, а користувачі й далі бачать
+    попередній знімок.
     """
     global _failures
     async with _lock:
@@ -499,7 +495,7 @@ async def refresh_schedule() -> bool:
             logger.log(
                 logging.ERROR if _failures >= ERROR_AFTER_FAILURES else logging.WARNING,
                 "Графік ДТЕК: не вдалося оновити знімок (циклів підряд: %s). "
-                "Користувачі бачать попередній знімок із позначкою, що він застарів",
+                "Користувачі бачать попередній знімок",
                 _failures,
             )
             return False
