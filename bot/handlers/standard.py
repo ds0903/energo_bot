@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from aiogram import F, Router, types
 from aiogram.exceptions import TelegramBadRequest
@@ -11,7 +11,7 @@ from handlers.logic import (get_notifications, get_panel, get_tuya_previous,
 from handlers.menus import (SCH_CLOSE, SCH_SHOW, SCH_TODAY, SCH_TOMORROW,
                             STD_NOTIFY_OFF, STD_NOTIFY_ON, schedule_keyboard,
                             standard_keyboard)
-from monitor import (device_suffix, fetch_watched, format_duration, now_kyiv,
+from monitor import (device_suffix, fetch_watched, format_duration,
                      poll_seconds, previous_state_text)
 from settings import tuya_location
 from tuya import get_client
@@ -46,23 +46,23 @@ async def status_text() -> str:
 
     blocks = []
     for device in devices:
-        lines = ["🟢 Світло є" if device["online"] else "🔴 Світла немає"]
-        lines.append(f"📍 {tuya_location()}{device_suffix(device, len(devices) > 1)}")
         state = await get_tuya_state(device["id"])
+        previous = None
         if state is not None and state[0] == device["online"]:
-            # скільки тривав минулий стан: так само, як у сповіщенні про зміну світла
+            # скільки тривав минулий стан (відомо після першої зміни світла)
             previous = await get_tuya_previous(device["id"])
-            if previous is not None:
-                duration = format_duration(timedelta(seconds=previous))
-                lines.append(previous_state_text(device["online"], duration))
-            else:
-                # до першої зміни після оновлення бот ще не знає тривалості минулого стану:
-                # щоб панель не була порожньою, показуємо, скільки триває теперішній
-                elapsed = max(timedelta(0), now_kyiv() - datetime.fromisoformat(state[1]))
-                emoji = "⚡" if device["online"] else "🌙"
-                lines.append(f"{emoji} Вже {format_duration(elapsed)}")
-        blocks.append("\n".join(lines))
+        blocks.append(device_block(device, len(devices) > 1, previous))
     return "\n\n".join(blocks)
+
+
+def device_block(device: dict, several: bool, previous_seconds: int | None) -> str:
+    """Стан світла для панелі: рядок про минулий стан такий самий, як у сповіщенні."""
+    lines = ["🟢 Світло є" if device["online"] else "🔴 Світла немає"]
+    lines.append(f"📍 {tuya_location()}{device_suffix(device, several)}")
+    if previous_seconds is not None:
+        duration = format_duration(timedelta(seconds=previous_seconds))
+        lines.append(previous_state_text(device["online"], duration))
+    return "\n".join(lines)
 
 
 async def standard_screen(user_id: int, notice: str = ""):

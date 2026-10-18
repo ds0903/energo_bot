@@ -7,7 +7,7 @@ from handlers.logic import list_admin_info, list_all_users
 from handlers.menus import (ADM_ACTIVE, ADM_GUESTS, ADM_LIST, ADM_TEST,
                             ADM_USERS, admin_keyboard, alert_keyboard,
                             back_keyboard, standard_keyboard)
-from handlers.standard import standard_screen
+from handlers.standard import device_block, standard_screen
 from monitor import notification_text, now_kyiv
 from openpyxl import Workbook
 from outages import change_text  # , warning_text (попередження вимкнено)
@@ -156,6 +156,10 @@ async def test_messages(callback: types.CallbackQuery, bot: Bot):
     )
     for text in secondary:
         await bot.send_message(user_id, text, reply_markup=alert_keyboard())
+    # зразки панелі статусу: рядок про минулий стан з'являється після першої зміни світла
+    for online, seconds in ((True, 3 * 3600 + 25 * 60), (False, 5 * 3600 + 40 * 60)):
+        text = device_block({**device, "online": online}, False, seconds)
+        await bot.send_message(user_id, text, reply_markup=standard_keyboard(True))
     # і поточний екран статусу такий, яким його бачить користувач
     text, markup = await standard_screen(user_id)
     await bot.send_message(user_id, text, reply_markup=markup)
