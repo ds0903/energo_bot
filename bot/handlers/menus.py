@@ -22,6 +22,8 @@ EXT_DELETE = "ext:del"
 EXT_ON = "ext:on"
 EXT_OFF = "ext:off"
 EXT_HELP = "ext:help"
+ADM_TEST = "adm:test"
+ADM_LIST = "adm:list"
 ADM_ACTIVE = "adm:active"
 ADM_USERS = "adm:users"
 ADM_GUESTS = "adm:guests"
@@ -45,7 +47,7 @@ HELP_TEXT = (
 def mode_choice_text() -> str:
     return (
         "Оберіть режим роботи бота:\n\n"
-        f"🏠 Стандартний — моніторинг світла за адресою {tuya_location()}\n\n"
+        f"🏠 Стандартний — моніторинг світла ({tuya_location()})\n\n"
         "🛠 Розширений — моніторинг IP-адрес (роутер, камера тощо): "
         f"бот пінгує їх кожні {ip_check_minutes()} хв.\n\n"
         "Режим можна змінити в будь-який момент."
@@ -84,6 +86,13 @@ def standard_keyboard(notifications_on: bool):
         # поки розширений режим вимкнено, змінювати режим немає на що
         rows.append([("⚙️ Змінити режим", CB_MODE_CHOOSE)])
     return _keyboard(rows)
+
+
+def alert_keyboard():
+    """Кнопки під попередженням: відкрити графік (на місці попередження) або закрити."""
+    return _keyboard(
+        [[("📅 Графік відключень", SCH_SHOW)], [("✖️ Закрити", SCH_CLOSE)]]
+    )
 
 
 def schedule_keyboard(day: str):
@@ -128,11 +137,16 @@ def pick_keyboard(prefix: str, items, back_data: str = EXT_MENU):
 
 
 def admin_keyboard():
-    return _keyboard(
-        [
+    rows = [
+        [("🧪 Тест-повідомлення", ADM_TEST)],
+        [("👥 Користувачі (txt)", ADM_LIST)],
+    ]
+    if extended_mode_enabled():
+        # вивантаження IP-моніторингу потрібні лише в розширеному режимі
+        rows += [
             [("📊 Всі активні ip користувачів", ADM_ACTIVE)],
             [("👥 Всі користувачі в базі", ADM_USERS)],
             [("👀 Відвідувачі", ADM_GUESTS)],
-            [("◀️ Назад", MENU_MAIN)],
         ]
-    )
+    rows.append([("◀️ Назад", MENU_MAIN)])
+    return _keyboard(rows)

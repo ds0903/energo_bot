@@ -97,6 +97,19 @@ def device_suffix(device: dict, several: bool) -> str:
     return f"\nПристрій: {device['name']}" if several and device["name"] else ""
 
 
+def notification_text(
+    online: bool, now: datetime, duration: str, device: dict, several: bool = False
+) -> str:
+    """Текст сповіщення про зміну стану світла (так само його показує адмінка в «Тест-повідомлення»)."""
+    if online:
+        head = f"🟢 Світло з'явилось о {format_time(now)}"
+        tail = f"⚡ Не було {duration}"
+    else:
+        head = f"🔴 Світло зникло о {format_time(now)}"
+        tail = f"Світло було {duration}"
+    return f"{head}\n📍 {tuya_location()}{device_suffix(device, several)}\n{tail}"
+
+
 async def _register_reading(device_id: str, online: bool, now: datetime):
     """Оновлює збережений стан; повертає тривалість попереднього стану, якщо він змінився."""
     async with _state_lock:
@@ -120,15 +133,7 @@ async def process_reading(bot, device: dict, now: datetime, several: bool = Fals
     elapsed = await _register_reading(device["id"], online, now)
     if elapsed is None:
         return
-    duration = format_duration(elapsed)
-
-    if online:
-        head = f"🟢 Світло з'явилось о {format_time(now)}"
-        tail = f"Не було {duration}"
-    else:
-        head = f"🔴 Світло зникло о {format_time(now)}"
-        tail = f"Світло було {duration}"
-    text = f"{head}\n📍 {tuya_location()}{device_suffix(device, several)}\n{tail}"
+    text = notification_text(online, now, format_duration(elapsed), device, several)
 
     for user_id in await list_notify_user_ids():
         try:

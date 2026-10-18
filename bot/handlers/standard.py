@@ -5,9 +5,9 @@ from aiogram import F, Router, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import FSInputFile, InputMediaPhoto
 from dtek_schedule import MISSING, UNPUBLISHED, WRONG_DAY, pick_snapshot
-from handlers.logic import (get_notifications, get_tuya_state,
-                            pop_schedule_photo, set_notifications,
-                            set_schedule_photo)
+from handlers.logic import (get_notifications, get_panel, get_tuya_state,
+                            pop_secondary_message, set_notifications,
+                            set_secondary_message)
 from handlers.menus import (SCH_CLOSE, SCH_SHOW, SCH_TODAY, SCH_TOMORROW,
                             STD_NOTIFY_OFF, STD_NOTIFY_ON, schedule_keyboard,
                             standard_keyboard)
@@ -41,7 +41,7 @@ async def status_text() -> str:
         return "⚠️ Не вдалося отримати статус світла. Спробуйте пізніше."
 
     if not devices:
-        return f"Пристрій для моніторингу за адресою {tuya_location()} не знайдено."
+        return f"Пристрій для моніторингу ({tuya_location()}) не знайдено."
 
     blocks = []
     for device in devices:
@@ -135,17 +135,22 @@ async def show_schedule(callback: types.CallbackQuery):
     await callback.answer()
 
     user_id = callback.from_user.id
-    # у користувача лише одне фото графіка: нове замінює старе
-    old = await pop_schedule_photo(user_id)
+    # вторинне повідомлення лише одне: графік замінює попереднє (фото чи попередження)
+    old = await pop_secondary_message(user_id)
     if old:
         await delete_quietly(callback.bot, user_id, old)
+    # кнопку натиснули під попередженням, якого немає в базі (наприклад, воно застаріло):
+    # прибираємо й його, щоб графік відкрився «замість» нього; основну панель не чіпаємо
+    pressed = callback.message.message_id if callback.message else None
+    if pressed and pressed != old and pressed != await get_panel(user_id):
+        await delete_quietly(callback.bot, user_id, pressed)
     sent = await callback.bot.send_photo(
         chat_id=user_id,
         photo=media,
         caption=caption,
         reply_markup=schedule_keyboard("today"),
     )
-    await set_schedule_photo(user_id, sent.message_id)
+    await set_secondary_message(user_id, sent.message_id)
     remember_file_id(key, sent)
 
 
@@ -181,6 +186,6 @@ async def close_schedule(callback: types.CallbackQuery):
     await delete_quietly(
         callback.bot, callback.from_user.id, callback.message.message_id
     )
-    await pop_schedule_photo(
+    await pop_secondary_message(
         callback.from_user.id, only_message_id=callback.message.message_id
     )

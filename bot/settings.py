@@ -2,7 +2,7 @@
 
 import os
 
-DEFAULT_LOCATION = "Богдана Хмельницького 67а"
+DEFAULT_LOCATION = "група 2.2"
 
 
 def env_int(name: str, default: int) -> int:
@@ -28,7 +28,7 @@ def ip_check_minutes() -> int:
 
 
 def tuya_location() -> str:
-    """Адреса, за якою стежить стандартний режим."""
+    """Підпис місця в повідомленнях (за замовчуванням «група 2.2»; можна змінити в .env)."""
     return (os.getenv("TUYA_LOCATION") or "").strip() or DEFAULT_LOCATION
 
 
@@ -54,13 +54,17 @@ def schedule_enabled() -> bool:
 
 
 def schedule_refresh_minutes() -> int:
-    """Як часто робити новий знімок графіка (хвилини)."""
-    return env_int("SCHEDULE_REFRESH_MINUTES", 60)
+    """Як часто робити новий знімок графіка (хвилини): раз на півгодини.
+
+    Значення зашите в код, у .env нічого додавати не треба (змінна лишається лише як
+    необов'язкове перевизначення).
+    """
+    return env_int("SCHEDULE_REFRESH_MINUTES", 30)
 
 
-def schedule_evening_minutes() -> int:
-    """Як часто знімати ввечері, поки ДТЕК не опублікував графік на завтра (хвилини)."""
-    return env_int("SCHEDULE_EVENING_MINUTES", 20)
+def outage_warn_minutes() -> int:
+    """За скільки хвилин до відключення за графіком попереджати (OUTAGE_WARN_MINUTES)."""
+    return env_int("OUTAGE_WARN_MINUTES", 60)
 
 
 def schedule_city() -> str:
@@ -74,11 +78,6 @@ def schedule_street() -> str:
 def schedule_house() -> str:
     # будь-який номер: графік залежить від черги вулиці, а не від конкретного будинку
     return (os.getenv("SCHEDULE_HOUSE") or "").strip() or "6"
-
-
-def refresh_password() -> str:
-    """Пароль команди /refresh (REFRESH_PASSWORD у .env). Порожній - команда вимкнена."""
-    return (os.getenv("REFRESH_PASSWORD") or "").strip()
 
 
 def push_log_raw() -> bool:

@@ -7,7 +7,8 @@
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import LinkPreviewOptions, ReplyKeyboardRemove
-from handlers.logic import get_panel, pop_schedule_photo, set_panel
+from handlers.logic import (get_panel, pop_secondary_message, set_panel,
+                            set_secondary_message)
 
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
 
@@ -33,11 +34,30 @@ async def send_panel(bot: Bot, user_id: int, text: str, markup, parse_mode=None)
     await set_panel(user_id, sent.message_id)
     if old and old != sent.message_id:
         await delete_quietly(bot, user_id, old)
-    # фото графіка лишилося б вище за нову панель і застаріло б: у чаті має бути
-    # лише актуальна панель (графік можна відкрити знову кнопкою)
-    photo = await pop_schedule_photo(user_id)
-    if photo:
-        await delete_quietly(bot, user_id, photo)
+    # вторинне повідомлення (фото графіка, попередження) лишилося б вище за нову панель
+    # і застаріло б: у чаті має бути лише актуальна панель
+    secondary = await pop_secondary_message(user_id)
+    if secondary:
+        await delete_quietly(bot, user_id, secondary)
+
+
+async def send_secondary(bot: Bot, user_id: int, text: str, markup=None):
+    """Вторинне повідомлення (попередження про відключення, зміну графіка).
+
+    Воно друге за важливістю: нове вторинне замінює попереднє, а основна панель
+    («світло є / немає») лишається недоторканою: її замінює лише зміна стану світла.
+    """
+    sent = await bot.send_message(
+        chat_id=user_id,
+        text=text,
+        reply_markup=markup,
+        link_preview_options=NO_PREVIEW,
+    )
+    old = await pop_secondary_message(user_id)
+    await set_secondary_message(user_id, sent.message_id)
+    if old and old != sent.message_id:
+        await delete_quietly(bot, user_id, old)
+    return sent
 
 
 async def edit_panel(

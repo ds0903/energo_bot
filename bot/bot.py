@@ -8,6 +8,7 @@ from dtek_schedule import schedule_loop
 from handlers import admin, comands, common, standard
 from handlers.logic import init_db
 from monitor import tuya_monitor
+from outages import notify_changes
 from settings import extended_mode_enabled, schedule_enabled
 from tuya import get_client
 
@@ -46,7 +47,15 @@ async def main():
     # знімок графіка відключень ДТЕК раз на SCHEDULE_REFRESH_MINUTES (потрібен playwright)
     schedule_task = None
     if schedule_enabled():
-        schedule_task = asyncio.create_task(schedule_loop())
+
+        async def announce_changes(changes):
+            await notify_changes(bot, changes)
+
+        schedule_task = asyncio.create_task(schedule_loop(on_changes=announce_changes))
+        # Попередження «через годину вимкнуть світло» поки НЕ робимо. Код лишився в
+        # outages.py (alerts_loop); щоб увімкнути, додайте `alerts_loop` в імпорт з outages,
+        # створіть задачу `alerts_task = asyncio.create_task(alerts_loop(bot))` тут і
+        # додайте її до списку задач, які скасовуються нижче.
 
     try:
         await dp.start_polling(bot)

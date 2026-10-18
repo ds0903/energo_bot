@@ -2,7 +2,7 @@
 
 Справжній браузер (Playwright + Chromium) відкриває сторінку «Відсутня електроенергія?»,
 вибирає населений пункт, вулицю й будинок із налаштувань і зберігає дві картинки: графік
-«на сьогодні» і «на завтра». Робиться це раз на SCHEDULE_REFRESH_MINUTES, а користувачам
+«на сьогодні» і «на завтра». Робиться це раз на півгодини (settings.schedule_refresh_minutes), а користувачам
 віддається вже готова картинка, тож сайт ДТЕК навантажує лише бот, а не кожен користувач.
 """
 
@@ -20,8 +20,9 @@ from pathlib import Path
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
-from settings import (schedule_city, schedule_evening_minutes, schedule_house,
-                      schedule_refresh_minutes, schedule_street)
+from outage_data import detect_changes, slots_from_cells
+from settings import (schedule_city, schedule_house, schedule_refresh_minutes,
+                      schedule_street)
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +43,13 @@ RETRY_PAUSE_SECONDS = 20
 ERROR_AFTER_FAILURES = 3
 # додатковий знімок одразу після півночі, щоб «на сьогодні» не лишалось із вчорашньою датою
 MIDNIGHT_CAPTURE = dt_time(0, 5)
-# з цього часу, поки графіка на завтра немає, знімаємо частіше (ДТЕК публікує його ввечері)
-EVENING_START = dt_time(17, 0)
 # у таблиці графіка: клітинка-підпис + 24 години
 TABLE_COLUMNS = 25
 UPDATE_RE = re.compile(r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}")
 
 _lock = asyncio.Lock()
 _failures = 0  # невдалих циклів знімка підряд
+_pending_changes: list[dict] = []  # зміни графіка, про які ще не повідомили
 
 # зчитуємо зі сторінки лише те, що потрібно для перевірки (дати вкладок, розміри таблиць)
 PAGE_DATA_JS = """() => {
@@ -63,6 +63,8 @@ PAGE_DATA_JS = """() => {
       head: rows[0] ? rows[0].children.length : 0,
       body: rows[1] ? rows[1].children.length : 0,
       update: update ? update.textContent.trim() : null,
+      // класи 24 клітинок рядка графіка (без першої клітинки-підпису)
+      cells: rows[1] ? [...rows[1].children].slice(1).map(c => c.className || '') : [],
     };
   });
   return { dates, tables };
@@ -331,9 +333,8 @@ async def _capture() -> dict:
                 )
                 # таблиця з'явилась, але чи справді в ній дані на сьогодні?
                 today = datetime.now(KYIV).date()
-                has_tomorrow = _validate_page_data(
-                    await page.evaluate(PAGE_DATA_JS), today
-                )
+                page_data = await page.evaluate(PAGE_DATA_JS)
+                has_tomorrow = _validate_page_data(page_data, today)
             except Exception:
                 # знімок сторінки в момент помилки допомагає зрозуміти причину
                 try:
@@ -388,6 +389,22 @@ async def _capture() -> dict:
     if "tomorrow" not in images:
         # стара картинка «на завтра» тепер була б на іншу дату
         image_path("tomorrow").unlink(missing_ok=True)
+    # графік по годинах (з класів клітинок): з нього бот знає, коли вимкнуть світло
+    slots = {
+        "today": slots_from_cells(page_data["tables"][0].get("cells")),
+        "tomorrow": (
+            slots_from_cells(page_data["tables"][1].get("cells"))
+            if "tomorrow" in images
+            else None
+        ),
+    }
+    for day in ("today", "tomorrow"):
+        if (day == "today" or day in images) and slots[day] is None:
+            logger.warning(
+                "Графік ДТЕК: не вдалося розібрати клітинки таблиці (%s): "
+                "попередження про відключення за цей день не надсилатимуться",
+                day,
+            )
     meta = {
         "updated": datetime.now(KYIV).isoformat(),
         "site_updated": site_updated,
@@ -402,9 +419,12 @@ async def _capture() -> dict:
                 else None
             ),
         },
+        "slots": slots,
     }
+    # що змінилось порівняно з попереднім знімком (до того, як перезапишемо метадані)
+    changes = detect_changes(read_meta(), meta)
     _write_atomically(META_FILE, json.dumps(meta, ensure_ascii=False).encode("utf-8"))
-    return meta
+    return {**meta, "changes": changes}
 
 
 def _capture_in_own_loop() -> dict:
@@ -485,13 +505,22 @@ async def refresh_schedule() -> bool:
             return False
 
         _failures = 0
+        _pending_changes.extend(meta.get("changes") or [])
         logger.info(
-            "Графік ДТЕК: знімок оновлено за %.0f с (на сайті: %s, є «на завтра»: %s)",
+            "Графік ДТЕК: знімок оновлено за %.0f с (на сайті: %s, є «на завтра»: %s, змін графіка: %s)",
             time.monotonic() - started,
             meta.get("site_updated"),
             bool(meta.get("dates", {}).get("tomorrow")),
+            len(meta.get("changes") or []),
         )
         return True
+
+
+def take_changes() -> list[dict]:
+    """Зміни графіка, знайдені останніми знімками (і забуває їх: кожна зміна лише раз)."""
+    changes = list(_pending_changes)
+    _pending_changes.clear()
+    return changes
 
 
 def seconds_until_midnight_capture(now: datetime | None = None) -> float:
@@ -506,16 +535,13 @@ def seconds_until_midnight_capture(now: datetime | None = None) -> float:
 def next_interval_minutes(ok: bool, now: datetime | None = None) -> int:
     """Через скільки хвилин робити наступний знімок.
 
-    Після невдачі пробуємо швидше. Ввечері, поки ДТЕК не опублікував графік на завтра,
-    знімаємо частіше (SCHEDULE_EVENING_MINUTES), щоб він з'явився в боті майже одразу;
-    коли «завтра» вже є, знову працює звичайний інтервал.
+    Завжди рівно один інтервал (30 хв), у будь-яку пору доби, без прискорень. Єдині
+    виключення: після невдалого знімка пробуємо раніше, і один знімок о 00:05
+    (див. seconds_until_midnight_capture).
     """
     interval = schedule_refresh_minutes()
     if not ok:
         return min(interval, RETRY_AFTER_FAILURE_MINUTES)
-    now = now or datetime.now(KYIV)
-    if now.time() >= EVENING_START and pick_snapshot("tomorrow", now)[0] is None:
-        return min(interval, schedule_evening_minutes())
     return interval
 
 
@@ -529,7 +555,9 @@ def seconds_until_next_refresh() -> float:
     return max(0.0, interval - age)
 
 
-async def schedule_loop():
+async def schedule_loop(on_changes=None):
+    """Раз на інтервал робить знімок; on_changes(список змін) викликається, коли
+    графік на сьогодні чи завтра змінився або з'явився графік на завтра."""
     logger.info(
         "Графік ДТЕК: знімок раз на %s хв (%s, %s, %s)",
         schedule_refresh_minutes(),
@@ -549,6 +577,14 @@ async def schedule_loop():
         except Exception:
             logger.exception("Графік ДТЕК: збій циклу")
             ok = False
+        changes = take_changes()
+        if changes and on_changes is not None:
+            try:
+                await on_changes(changes)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Графік ДТЕК: не вдалося повідомити про зміну графіка")
         minutes = next_interval_minutes(ok)
         # додатковий знімок одразу після півночі: нова дата й, можливо, нова вкладка
         await asyncio.sleep(min(minutes * 60, seconds_until_midnight_capture()))

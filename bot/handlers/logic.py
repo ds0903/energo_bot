@@ -226,6 +226,23 @@ async def list_admin_info(status):
             return await cursor.fetchall()
 
 
+async def list_all_users():
+    """Усі, хто користується ботом: (user_id, username, коли підключився), від найстарших."""
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.execute(
+            "SELECT user_id, username, сurrent_time FROM gosti ORDER BY id"
+        ) as cursor:
+            users = list(await cursor.fetchall())
+        # хто є в режимах, але не в гостях (час підключення невідомий)
+        async with conn.execute(
+            "SELECT user_id FROM user_modes "
+            "WHERE user_id NOT IN (SELECT user_id FROM gosti WHERE user_id IS NOT NULL) "
+            "ORDER BY user_id"
+        ) as cursor:
+            users += [(row[0], None, None) for row in await cursor.fetchall()]
+    return users
+
+
 # ---- режими роботи та моніторинг світла через Tuya (стандартний режим)
 
 MODE_STANDARD = "standard"
@@ -291,9 +308,16 @@ async def init_db():
                 user_id INTEGER PRIMARY KEY,
                 message_id INTEGER NOT NULL
             );
-            CREATE TABLE IF NOT EXISTS schedule_photos (
+            -- вторинне повідомлення (одне на людину): фото графіка, попередження про
+            -- відключення або про зміну графіка; нове замінює попереднє
+            CREATE TABLE IF NOT EXISTS secondary_messages (
                 user_id INTEGER PRIMARY KEY,
                 message_id INTEGER NOT NULL
+            );
+            -- які попередження вже надіслано (щоб не повторювати)
+            CREATE TABLE IF NOT EXISTS sent_alerts (
+                alert_key TEXT PRIMARY KEY,
+                sent_at TEXT NOT NULL
             );
             """)
         # таблиця могла бути створена попередньою версією без колонки notify
@@ -303,6 +327,18 @@ async def init_db():
             await conn.execute(
                 "ALTER TABLE user_modes ADD COLUMN notify INTEGER NOT NULL DEFAULT 1"
             )
+        # попередня версія зберігала лише фото графіка в таблиці schedule_photos:
+        # переносимо ці записи, щоб такі фото теж замінювались, а не лишались в чатах
+        async with conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schedule_photos'"
+        ) as cursor:
+            has_old_table = await cursor.fetchone() is not None
+        if has_old_table:
+            await conn.execute(
+                "INSERT OR IGNORE INTO secondary_messages (user_id, message_id) "
+                "SELECT user_id, message_id FROM schedule_photos"
+            )
+            await conn.execute("DROP TABLE schedule_photos")
         await conn.commit()
 
 
@@ -362,14 +398,6 @@ async def set_notifications(user_id, enabled):
         await conn.commit()
 
 
-async def list_mode_user_ids():
-    """Усі, хто користується ботом (мають режим): їм адмін може розіслати нову панель."""
-    async with aiosqlite.connect(datab2) as conn:
-        async with conn.cursor() as cursor:
-            await cursor.execute("SELECT user_id FROM user_modes ORDER BY user_id")
-            return [row[0] for row in await cursor.fetchall()]
-
-
 async def list_notify_user_ids():
     """Користувачі стандартного режиму з увімкненими сповіщеннями про світло."""
     async with aiosqlite.connect(datab2) as conn:
@@ -402,23 +430,24 @@ async def set_panel(user_id, message_id):
         await conn.commit()
 
 
-async def set_schedule_photo(user_id, message_id):
-    """Запам'ятовує фото графіка користувача (одне на людину)."""
+async def set_secondary_message(user_id, message_id):
+    """Запам'ятовує вторинне повідомлення користувача (одне на людину)."""
     async with aiosqlite.connect(datab2) as conn:
         await conn.execute(
-            "INSERT INTO schedule_photos (user_id, message_id) VALUES (?, ?) "
+            "INSERT INTO secondary_messages (user_id, message_id) VALUES (?, ?) "
             "ON CONFLICT(user_id) DO UPDATE SET message_id = excluded.message_id",
             (user_id, message_id),
         )
         await conn.commit()
 
 
-async def pop_schedule_photo(user_id, only_message_id=None):
-    """Забирає (і забуває) id фото графіка; з only_message_id - лише якщо збігається."""
+async def pop_secondary_message(user_id, only_message_id=None):
+    """Забирає (і забуває) id вторинного повідомлення; з only_message_id - лише якщо збігається."""
     async with aiosqlite.connect(datab2) as conn:
         async with conn.cursor() as cursor:
             await cursor.execute(
-                "SELECT message_id FROM schedule_photos WHERE user_id = ?", (user_id,)
+                "SELECT message_id FROM secondary_messages WHERE user_id = ?",
+                (user_id,),
             )
             row = await cursor.fetchone()
             if row is None:
@@ -426,10 +455,30 @@ async def pop_schedule_photo(user_id, only_message_id=None):
             if only_message_id is not None and row[0] != only_message_id:
                 return None
             await cursor.execute(
-                "DELETE FROM schedule_photos WHERE user_id = ?", (user_id,)
+                "DELETE FROM secondary_messages WHERE user_id = ?", (user_id,)
             )
             await conn.commit()
             return row[0]
+
+
+async def claim_alert(alert_key, sent_at):
+    """True, якщо попередження з таким ключем ще не надсилалось (і позначає його надісланим)."""
+    async with aiosqlite.connect(datab2) as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                "INSERT OR IGNORE INTO sent_alerts (alert_key, sent_at) VALUES (?, ?)",
+                (alert_key, sent_at),
+            )
+            claimed = cursor.rowcount == 1
+            await conn.commit()
+            return claimed
+
+
+async def purge_alerts(older_than):
+    """Прибирає записи про надіслані попередження, старіші за older_than (ISO-час)."""
+    async with aiosqlite.connect(datab2) as conn:
+        await conn.execute("DELETE FROM sent_alerts WHERE sent_at < ?", (older_than,))
+        await conn.commit()
 
 
 async def get_tuya_state(device_id):
