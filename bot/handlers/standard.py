@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from aiogram import F, Router, types
 from aiogram.exceptions import TelegramBadRequest
@@ -11,7 +11,8 @@ from handlers.logic import (get_notifications, get_panel, get_tuya_state,
 from handlers.menus import (SCH_CLOSE, SCH_SHOW, SCH_TODAY, SCH_TOMORROW,
                             STD_NOTIFY_OFF, STD_NOTIFY_ON, schedule_keyboard,
                             standard_keyboard)
-from monitor import device_suffix, fetch_watched, poll_seconds
+from monitor import (device_suffix, fetch_watched, format_duration, now_kyiv,
+                     poll_seconds)
 from settings import tuya_location
 from tuya import get_client
 from ui import delete_quietly, edit_panel
@@ -49,8 +50,9 @@ async def status_text() -> str:
         lines.append(f"📍 {tuya_location()}{device_suffix(device, len(devices) > 1)}")
         state = await get_tuya_state(device["id"])
         if state is not None and state[0] == device["online"]:
-            since = datetime.fromisoformat(state[1]).strftime("%d.%m %H:%M")
-            lines.append(f"з {since}")
+            elapsed = max(timedelta(0), now_kyiv() - datetime.fromisoformat(state[1]))
+            duration = format_duration(elapsed)
+            lines.append(f"{'⚡' if device['online'] else '🌙'} {duration}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
