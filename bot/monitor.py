@@ -107,14 +107,18 @@ def previous_state_text(online: bool, duration: str) -> str:
     return f"🌙 Світло було {duration}"
 
 
+def change_head(online: bool, moment: datetime) -> str:
+    """Заголовок: коли світло з'явилось або зникло. Однаковий у сповіщенні й у панелі."""
+    if online:
+        return f"🟢 Світло з'явилось о {format_time(moment)}"
+    return f"🔴 Світло зникло о {format_time(moment)}"
+
+
 def notification_text(
     online: bool, now: datetime, duration: str, device: dict, several: bool = False
 ) -> str:
     """Текст сповіщення про зміну стану світла (так само його показує адмінка в «Тест-повідомлення»)."""
-    if online:
-        head = f"🟢 Світло з'явилось о {format_time(now)}"
-    else:
-        head = f"🔴 Світло зникло о {format_time(now)}"
+    head = change_head(online, now)
     tail = previous_state_text(online, duration)
     return f"{head}\n📍 {tuya_location()}{device_suffix(device, several)}\n{tail}"
 

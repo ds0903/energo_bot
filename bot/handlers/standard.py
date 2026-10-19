@@ -1,5 +1,5 @@
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from aiogram import F, Router, types
 from aiogram.exceptions import TelegramBadRequest
@@ -11,8 +11,8 @@ from handlers.logic import (get_notifications, get_panel, get_tuya_previous,
 from handlers.menus import (SCH_CLOSE, SCH_SHOW, SCH_TODAY, SCH_TOMORROW,
                             STD_NOTIFY_OFF, STD_NOTIFY_ON, schedule_keyboard,
                             standard_keyboard)
-from monitor import (device_suffix, fetch_watched, format_duration,
-                     poll_seconds, previous_state_text)
+from monitor import (change_head, device_suffix, fetch_watched,
+                     format_duration, poll_seconds, previous_state_text)
 from settings import tuya_location
 from tuya import get_client
 from ui import delete_quietly, edit_panel
@@ -47,17 +47,27 @@ async def status_text() -> str:
     blocks = []
     for device in devices:
         state = await get_tuya_state(device["id"])
-        previous = None
+        since = previous = None
         if state is not None and state[0] == device["online"]:
-            # скільки тривав минулий стан (відомо після першої зміни світла)
+            # коли стан змінився і скільки тривав минулий (друге відомо після першої зміни)
+            since = datetime.fromisoformat(state[1])
             previous = await get_tuya_previous(device["id"])
-        blocks.append(device_block(device, len(devices) > 1, previous))
+        blocks.append(device_block(device, len(devices) > 1, previous, since))
     return "\n\n".join(blocks)
 
 
-def device_block(device: dict, several: bool, previous_seconds: int | None) -> str:
-    """Стан світла для панелі: рядок про минулий стан такий самий, як у сповіщенні."""
-    lines = ["🟢 Світло є" if device["online"] else "🔴 Світла немає"]
+def device_block(
+    device: dict,
+    several: bool,
+    previous_seconds: int | None,
+    since: datetime | None = None,
+) -> str:
+    """Стан світла для панелі: той самий текст, що й у сповіщенні про зміну світла."""
+    if since is not None:
+        head = change_head(device["online"], since)
+    else:
+        head = "🟢 Світло є" if device["online"] else "🔴 Світла немає"
+    lines = [head]
     lines.append(f"📍 {tuya_location()}{device_suffix(device, several)}")
     if previous_seconds is not None:
         duration = format_duration(timedelta(seconds=previous_seconds))
