@@ -1,2 +1,4 @@
 systemctl restart energo-bot
 journalctl -u energo-bot -f
+
+cd /root/energo_bot && git pull && systemctl restart energo-bot
