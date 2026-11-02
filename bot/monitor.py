@@ -97,11 +97,6 @@ async def fetch_watched(client, max_age: float = 0):
     return [device for device in devices if not wanted or device["id"] in wanted]
 
 
-def device_suffix(device: dict, several: bool) -> str:
-    # назву пристрою показуємо лише коли їх кілька, інакше вистачає адреси
-    return f"\nПристрій: {device['name']}" if several and device["name"] else ""
-
-
 def previous_state_text(online: bool, duration: str) -> str:
     """Рядок про минулий стан: скільки не було світла (воно щойно з'явилось) або скільки було.
 
@@ -119,13 +114,11 @@ def change_head(online: bool, moment: datetime) -> str:
     return f"🔴 Світло зникло о {format_time(moment)}"
 
 
-def notification_text(
-    online: bool, now: datetime, duration: str, device: dict, several: bool = False
-) -> str:
+def notification_text(online: bool, now: datetime, duration: str) -> str:
     """Текст сповіщення про зміну стану світла (так само його показує адмінка в «Тест-повідомлення»)."""
     head = change_head(online, now)
     tail = previous_state_text(online, duration)
-    return f"{head}\n📍 {tuya_location()}{device_suffix(device, several)}\n{tail}"
+    return f"{head}\n📍 {tuya_location()}\n{tail}"
 
 
 async def _register_reading(device_id: str, online: bool, now: datetime):
@@ -149,13 +142,13 @@ async def _register_reading(device_id: str, online: bool, now: datetime):
         return elapsed
 
 
-async def process_reading(bot, device: dict, now: datetime, several: bool = False):
+async def process_reading(bot, device: dict, now: datetime):
     """Записує показання (воно вже підтверджене) і за зміни стану сповіщає користувачів."""
     online = device["online"]
     elapsed = await _register_reading(device["id"], online, now)
     if elapsed is None:
         return
-    text = notification_text(online, now, format_duration(elapsed), device, several)
+    text = notification_text(online, now, format_duration(elapsed))
 
     quiet = online and elapsed < SHORT_OUTAGE
     if quiet:
@@ -210,7 +203,7 @@ async def poll_once(bot, client):
                 )
                 handle_push(bot, client, device["id"], device["online"])
                 continue
-            await process_reading(bot, device, now, several=len(devices) > 1)
+            await process_reading(bot, device, now)
         except Exception:
             logger.exception("Помилка обробки пристрою %s", device["id"])
 
@@ -260,7 +253,7 @@ async def verify_push(bot, client, device_id: str, expected_online: bool | None)
             continue
 
         if confirmed >= needed:
-            await process_reading(bot, device, now_kyiv(), several=len(devices) > 1)
+            await process_reading(bot, device, now_kyiv())
             return
     # API так і не підтвердив: розбереться регулярне опитування
     logger.info("Push Tuya: API не підтвердив зміну стану пристрою …%s", device_id[-4:])

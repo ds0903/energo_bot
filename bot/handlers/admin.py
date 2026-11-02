@@ -123,12 +123,11 @@ async def test_messages(callback: types.CallbackQuery, bot: Bot):
     await callback.answer()
     user_id = callback.from_user.id
     now = now_kyiv()
-    device = {"id": "preview", "name": "Тестовий пристрій", "online": True}
     await bot.send_message(user_id, "🧪 Приклади повідомлень (тест, бачите лише ви)")
     # основні повідомлення: світло зникло / з'явилось (їх замінює лише зміна стану світла)
     primary = (
-        notification_text(False, now, "5 год 40 хв", device),
-        notification_text(True, now, "3 год 25 хв", device),
+        notification_text(False, now, "5 год 40 хв"),
+        notification_text(True, now, "3 год 25 хв"),
     )
     for text in primary:
         await bot.send_message(user_id, text, reply_markup=standard_keyboard(True))
@@ -158,7 +157,7 @@ async def test_messages(callback: types.CallbackQuery, bot: Bot):
         await bot.send_message(user_id, text, reply_markup=alert_keyboard())
     # зразки панелі статусу: рядок про минулий стан з'являється після першої зміни світла
     for online, seconds in ((True, 3 * 3600 + 25 * 60), (False, 5 * 3600 + 40 * 60)):
-        text = device_block({**device, "online": online}, False, seconds, now)
+        text = device_block({"online": online}, seconds, now)
         await bot.send_message(user_id, text, reply_markup=standard_keyboard(True))
     # і поточний екран статусу такий, яким його бачить користувач
     text, markup = await standard_screen(user_id)

@@ -11,8 +11,8 @@ from handlers.logic import (get_notifications, get_panel, get_tuya_previous,
 from handlers.menus import (SCH_CLOSE, SCH_SHOW, SCH_TODAY, SCH_TOMORROW,
                             STD_NOTIFY_OFF, STD_NOTIFY_ON, schedule_keyboard,
                             standard_keyboard)
-from monitor import (change_head, device_suffix, fetch_watched,
-                     format_duration, poll_seconds, previous_state_text)
+from monitor import (change_head, fetch_watched, format_duration,
+                     poll_seconds, previous_state_text)
 from settings import tuya_location
 from tuya import get_client
 from ui import delete_quietly, edit_panel
@@ -52,15 +52,12 @@ async def status_text() -> str:
             # коли стан змінився і скільки тривав минулий (друге відомо після першої зміни)
             since = datetime.fromisoformat(state[1])
             previous = await get_tuya_previous(device["id"])
-        blocks.append(device_block(device, len(devices) > 1, previous, since))
+        blocks.append(device_block(device, previous, since))
     return "\n\n".join(blocks)
 
 
 def device_block(
-    device: dict,
-    several: bool,
-    previous_seconds: int | None,
-    since: datetime | None = None,
+    device: dict, previous_seconds: int | None, since: datetime | None = None
 ) -> str:
     """Стан світла для панелі: той самий текст, що й у сповіщенні про зміну світла."""
     if since is not None:
@@ -68,7 +65,7 @@ def device_block(
     else:
         head = "🟢 Світло є" if device["online"] else "🔴 Світла немає"
     lines = [head]
-    lines.append(f"📍 {tuya_location()}{device_suffix(device, several)}")
+    lines.append(f"📍 {tuya_location()}")
     if previous_seconds is not None:
         duration = format_duration(timedelta(seconds=previous_seconds))
         lines.append(previous_state_text(device["online"], duration))

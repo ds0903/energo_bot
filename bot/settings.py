@@ -3,6 +3,8 @@
 import os
 
 DEFAULT_LOCATION = "група 2.2"
+# Device ID пристрою «Питание фермы»: бот стежить лише за ним, інші пристрої акаунта ігнорує
+FARM_DEVICE_ID = "03805450a4e57ca78814"
 
 
 def env_int(name: str, default: int) -> int:
@@ -91,6 +93,10 @@ def push_log_raw() -> bool:
 
 
 def tuya_device_ids() -> set[str]:
-    """Необов'язковий фільтр: стежити лише за цими пристроями (TUYA_DEVICE_ID через кому)."""
+    """За якими пристроями стежимо: за замовчуванням лише «Питание фермы».
+
+    TUYA_DEVICE_ID у .env (через кому) замінює цей пристрій, якщо колись знадобиться інший.
+    """
     raw = os.getenv("TUYA_DEVICE_ID") or ""
-    return {part.strip() for part in raw.split(",") if part.strip()}
+    ids = {part.strip() for part in raw.split(",") if part.strip()}
+    return ids or {FARM_DEVICE_ID}
