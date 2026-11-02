@@ -15,7 +15,8 @@ from datetime import timedelta
 
 import dtek_schedule
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
-from handlers.logic import claim_alert, list_notify_user_ids, purge_alerts
+from handlers.logic import (claim_alert, list_notify_user_ids, purge_alerts,
+                            set_blocked)
 from handlers.menus import alert_keyboard
 from outage_data import (day_intervals, fmt_interval, fmt_intervals,
                          slots_by_date, two_day_intervals)
@@ -66,7 +67,8 @@ async def _send_to_all(bot, text: str) -> int:
             await send_secondary(bot, user_id, text, alert_keyboard())
             delivered += 1
         except TelegramForbiddenError:
-            logger.info("Користувач %s заблокував бота", user_id)
+            logger.info("Користувач %s заблокував бота, сповіщення йому вимкнено", user_id)
+            await set_blocked(user_id, True)
         except TelegramAPIError:
             logger.warning(
                 "Не вдалося надіслати попередження %s", user_id, exc_info=True

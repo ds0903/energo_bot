@@ -5,7 +5,8 @@
 """
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
+from aiogram.exceptions import (TelegramAPIError, TelegramBadRequest,
+                                TelegramForbiddenError)
 from aiogram.types import LinkPreviewOptions, ReplyKeyboardRemove
 from handlers.logic import (get_panel, pop_secondary_message, set_panel,
                             set_secondary_message)
@@ -90,6 +91,29 @@ async def edit_panel(
                     await delete_quietly(bot, user_id, stored)
             return
     await send_panel(bot, user_id, text, markup, parse_mode)
+
+
+async def update_panel_quietly(bot: Bot, user_id: int, text: str, markup):
+    """Змінює панель на місці: без нового повідомлення і звуку.
+
+    Якщо панелі в чаті вже немає, нічого не шле. TelegramForbiddenError (бота заблокували)
+    передається нагору, решту помилок (текст не змінився, повідомлення видалене) ігноруємо.
+    """
+    stored = await get_panel(user_id)
+    if not stored:
+        return
+    try:
+        await bot.edit_message_text(
+            text=text,
+            chat_id=user_id,
+            message_id=stored,
+            reply_markup=markup,
+            link_preview_options=NO_PREVIEW,
+        )
+    except TelegramForbiddenError:
+        raise
+    except TelegramAPIError:
+        pass
 
 
 async def remove_reply_keyboard(bot: Bot, chat_id: int):

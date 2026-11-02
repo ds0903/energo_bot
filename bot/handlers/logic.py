@@ -297,7 +297,8 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS user_modes (
                 user_id INTEGER PRIMARY KEY,
                 mode TEXT NOT NULL,
-                notify INTEGER NOT NULL DEFAULT 1
+                notify INTEGER NOT NULL DEFAULT 1,
+                blocked INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS tuya_state (
                 device_id TEXT PRIMARY KEY,
@@ -327,6 +328,11 @@ async def init_db():
         if "notify" not in columns:
             await conn.execute(
                 "ALTER TABLE user_modes ADD COLUMN notify INTEGER NOT NULL DEFAULT 1"
+            )
+        # прапорець «користувач заблокував бота» з'явився пізніше за notify
+        if "blocked" not in columns:
+            await conn.execute(
+                "ALTER TABLE user_modes ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0"
             )
         # у попередній версії tuya_state не пам'ятала, скільки тривав минулий стан
         async with conn.execute("PRAGMA table_info(tuya_state)") as cursor:
@@ -405,14 +411,35 @@ async def set_notifications(user_id, enabled):
 
 
 async def list_notify_user_ids():
-    """Користувачі стандартного режиму з увімкненими сповіщеннями про світло."""
+    """Користувачі стандартного режиму з увімкненими сповіщеннями, які не заблокували бота."""
     async with aiosqlite.connect(datab2) as conn:
         async with conn.cursor() as cursor:
             await cursor.execute(
-                "SELECT user_id FROM user_modes WHERE mode = ? AND notify = 1",
+                "SELECT user_id FROM user_modes "
+                "WHERE mode = ? AND notify = 1 AND blocked = 0",
                 (MODE_STANDARD,),
             )
             return [row[0] for row in await cursor.fetchall()]
+
+
+async def set_blocked(user_id, blocked: bool):
+    """Telegram не пустив повідомлення (бота заблокували): більше не шлемо, поки людина не напише."""
+    async with aiosqlite.connect(datab2) as conn:
+        await conn.execute(
+            "UPDATE user_modes SET blocked = ? WHERE user_id = ?",
+            (int(blocked), user_id),
+        )
+        await conn.commit()
+
+
+async def clear_blocked(user_id):
+    """Людина сама написала боту, отже розблокувала його: сповіщення знову можна слати."""
+    async with aiosqlite.connect(datab2) as conn:
+        await conn.execute(
+            "UPDATE user_modes SET blocked = 0 WHERE user_id = ? AND blocked = 1",
+            (user_id,),
+        )
+        await conn.commit()
 
 
 async def get_panel(user_id):

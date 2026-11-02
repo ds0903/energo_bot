@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv
 from dtek_schedule import schedule_loop
 from handlers import admin, comands, common, standard
-from handlers.logic import init_db
+from handlers.logic import clear_blocked, init_db
 from monitor import tuya_monitor
 from outages import notify_changes
 from settings import extended_mode_enabled, schedule_enabled
@@ -19,6 +19,19 @@ logger = logging.getLogger(__name__)
 
 bot = Bot(token=os.environ["BOT_TOKEN"])
 dp = Dispatcher()
+
+
+@dp.update.outer_middleware()
+async def unblock_on_activity(handler, event, data):
+    """Людина написала боту або натиснула кнопку: вона його не блокує, сповіщення знову можна слати.
+
+    Лише повідомлення і кнопки: оновлення про сам факт блокування приходить від тієї ж людини.
+    """
+    user = data.get("event_from_user")
+    if user is not None and (event.message or event.callback_query):
+        await clear_blocked(user.id)
+    return await handler(event, data)
+
 
 # порядок важливий: команди раніше за хендлери станів, а fallback - останнім
 dp.include_router(common.router)

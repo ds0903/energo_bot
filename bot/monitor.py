@@ -8,11 +8,12 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
-from handlers.logic import get_tuya_state, list_notify_user_ids, set_tuya_state
+from handlers.logic import (get_tuya_state, list_notify_user_ids, set_blocked,
+                            set_tuya_state)
 from handlers.menus import standard_keyboard
 from push import TuyaPush
 from settings import env_int, tuya_device_ids, tuya_location, tuya_push_enabled
-from ui import send_panel
+from ui import send_panel, update_panel_quietly
 
 logger = logging.getLogger(__name__)
 
@@ -28,25 +29,29 @@ _verify_tasks: dict[str, asyncio.Task] = {}
 
 
 def poll_seconds() -> int:
-    # Як часто питаємо Tuya про стан. Побачивши зміну, опитування одразу підтверджує її
-    # контрольною перевіркою через паузу, тож затримка сповіщення = інтервал + ~15 с.
-    # Безкоштовна квота API обмежена (26 тис. запитів на місяць).
+    # Як часто питаємо Tuya про стан. Побачивши зміну, опитування підтверджує її кількома
+    # контрольними перевірками через паузу, тож сповіщення приходить через інтервал +
+    # пауза × кількість перевірок. Безкоштовна квота API обмежена (26 тис. запитів на місяць).
     return env_int("TUYA_POLL_SECONDS", 120)
 
 
 def verify_pause() -> int:
-    # пауза (с) між перевірками стану в API після push-події: перша перевірка теж
-    # через цю паузу, а не одразу, щоб відсікти короткі збої зв'язку
-    return env_int("TUYA_PUSH_VERIFY_SECONDS", 15)
+    # пауза (с) між перевірками стану в API: перша перевірка теж через цю паузу, а не
+    # одразу. Пристрій інколи губить зв'язок на 2-3 хвилини, і такий збій не має
+    # виглядати як відключення світла
+    return env_int("TUYA_PUSH_VERIFY_SECONDS", 90)
 
 
 def verify_checks() -> int:
     # скільки перевірок поспіль мають підтвердити зміну, перш ніж про неї повідомити
-    return env_int("TUYA_PUSH_CHECKS", 1)
+    return env_int("TUYA_PUSH_CHECKS", 2)
 
 
 # скільки додаткових перевірок дозволено, якщо API ще показує старий стан
 MAX_EXTRA_VERIFY_CHECKS = 4
+# світло повернулось швидше за цей час: це збій зв'язку, а не відключення. Нового
+# повідомлення (і звуку) немає, лише тихо виправляється панель, де ще написано «зникло»
+SHORT_OUTAGE = timedelta(minutes=10)
 
 
 def now_kyiv() -> datetime:
@@ -152,12 +157,24 @@ async def process_reading(bot, device: dict, now: datetime, several: bool = Fals
         return
     text = notification_text(online, now, format_duration(elapsed), device, several)
 
+    quiet = online and elapsed < SHORT_OUTAGE
+    if quiet:
+        logger.info(
+            "Світло повернулось через %s: це збій зв'язку, нового повідомлення не буде",
+            format_duration(elapsed),
+        )
+
     for user_id in await list_notify_user_ids():
         try:
-            # сповіщення стає новою панеллю: старе повідомлення зникає, кнопки лишаються під рукою
-            await send_panel(bot, user_id, text, standard_keyboard(True))
+            if quiet:
+                await update_panel_quietly(bot, user_id, text, standard_keyboard(True))
+            else:
+                # сповіщення стає новою панеллю: старе повідомлення зникає, кнопки лишаються під рукою
+                await send_panel(bot, user_id, text, standard_keyboard(True))
         except TelegramForbiddenError:
-            logger.info("Користувач %s заблокував бота", user_id)
+            # бота заблокували: більше не пишемо, поки людина сама не напише боту
+            logger.info("Користувач %s заблокував бота, сповіщення йому вимкнено", user_id)
+            await set_blocked(user_id, True)
         except TelegramAPIError:
             logger.warning("Не вдалося надіслати сповіщення %s", user_id, exc_info=True)
 
@@ -179,6 +196,10 @@ async def poll_once(bot, client):
         try:
             state = await get_tuya_state(device["id"])
             if state is not None and state[0] != device["online"]:
+                if device["id"] in _verify_tasks:
+                    # перевірка вже триває: її не можна перезапускати кожним опитуванням,
+                    # бо вона триває довше за інтервал опитування і ніколи б не завершилась
+                    continue
                 # зміна стану: не чекаємо наступного опитування (через кілька хвилин), а
                 # одразу підтверджуємо її контрольною перевіркою через паузу, як після push
                 logger.info(
